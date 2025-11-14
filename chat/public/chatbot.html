@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+    <script src="chatbot.js"></script>
+</head>
+
+<body>
+
+    <div class="content">
+        <div class="header">
+            <h1>Hotel CasaBlanca</h1>
+            <p>Tu Alojamiento preferido en Las Grutas</p>
+        </div>
+
+
+        <div class="header">
+            <h2>¿Tienes preguntas sobre nuestros servicios?</h2>
+            <p>Nuestro asistente virtual está aquí para ayudarte</p>
+        </div>
+    </div>
+
+
+</body>
+
+<script>
+    // Inicializar manualmente
+    const chatbot = new FloatingChatbot({
+        assistantName: 'Asistente',
+        welcomeMessage: '¡Bienvenido!',
+        position: { bottom: '30px', right: '30px' },
+        primaryColor: '#3498db',
+        secondaryColor: '#8e44ad'
+    });
+
+    // Guardar referencia global si es necesario
+    window.chatbot = chatbot;
+</script>
+
+</html>

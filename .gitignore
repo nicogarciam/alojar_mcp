@@ -1,0 +1,12 @@
+# Default ignored files
+.idea
+.vscode
+.DS_Store
+node_modules
+dist
+.env
+*.log
+chat/node_modules
+chat/.env
+server/node_modules
+server/.env
