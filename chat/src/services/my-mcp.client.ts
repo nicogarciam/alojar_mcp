@@ -188,6 +188,28 @@ export class MyMCPClient implements MCPClient {
     }
 
     /**
+     * Reconecta al servidor MCP
+     */
+    async reconnect(): Promise<void> {
+        await this.disconnect();
+        await this.connect();
+    }
+
+    /**
+     * Termina una sesión (compatible con MCPClient interface)
+     */
+    async terminateSession(): Promise<void> {
+        await this.disconnect();
+    }
+
+    /**
+     * Limpia la sesión actual
+     */
+    async clearSession(): Promise<void> {
+        this.availableTools = [];
+    }
+
+    /**
      * Verifica si está conectado
      */
     isClientConnected(): boolean {

@@ -8,23 +8,22 @@ export function registerCheckAvailabilityTool(server: McpServer) {
         'check_availability',
         {
             title: 'Check Availability Tool',
-            description: 'Consulta la disponibilidad de alojamientos para un hotel, fechas y número de personas específicos',
+            description: 'Consulta la disponibilidad de alojamientos para el Hotel CasaBlanca Las Grutas entre las fechas y para un número de personas específicos (pax)',
             inputSchema: {
-                hotel_id: z.number().describe('ID of the hotel to check'),
                 date_from: z.string().describe('Check-in date (YYYY-MM-DD)'),
                 date_to: z.string().describe('Check-out date (YYYY-MM-DD)'),
                 pax: z.number().describe('Number of guests')
             },
         },
-        async ({ hotel_id, date_from, date_to, pax }, extra): Promise<CallToolResult> => {
+        async ({ date_from, date_to, pax }, extra): Promise<CallToolResult> => {
             const availabilityService = new AvailabilityService();
-            console.log('Consultando disponibilidad para hotel_id:', hotel_id, 'desde', date_from, 'hasta', date_to, 'para', pax, 'personas');
+            console.log('Consultando disponibilidad para hotel_id: 2 desde', date_from, 'hasta', date_to, 'para', pax, 'personas');
 
             try {
                 await server.sendLoggingMessage(
                     {
                         level: 'info',
-                        data: `Vamos a consultar disponibilidad para hotel_id: ${hotel_id} desde ${date_from} hasta ${date_to} para ${pax} personas`
+                        data: `Vamos a consultar disponibilidad para hotel_id: 2 desde ${date_from} hasta ${date_to} para ${pax} personas`
                     },
                     extra.sessionId
                 );
@@ -53,7 +52,8 @@ export function registerCheckAvailabilityTool(server: McpServer) {
                     pax
                 );
 
-                const formattedResponse = formatAvailabilityResponse(apiResponse);
+                //const formattedResponse = formatAvailabilityResponse(apiResponse);
+                const formattedResponse = JSON.stringify(apiResponse, null, 2);
 
                 return {
                     content: [
@@ -113,6 +113,15 @@ function formatAvailabilityResponse(response: any): string {
             result += `\n`;
         });
     }
+
+    return result;
+}
+
+
+function formatAvailabilityResponseJSONL(response: any): string {
+    // console.error('Formateando respuesta de disponibilidad:', response);
+    let result = `## 📊 Resultados de Disponibilidad\n\n`;
+
 
     return result;
 }

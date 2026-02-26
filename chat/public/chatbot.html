@@ -1,10 +1,11 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="es">
 
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Document</title>
+    <title>Chatbot - Asistente Virtual</title>
+
     <!-- React CDN -->
     <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
@@ -21,39 +22,58 @@
 
     <!-- DOMPurify para sanitizar HTML -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.5/purify.min.js"></script>
-    <script src="chatbot.js"></script>
+
+    <!-- Estilos del chatbot -->
+    <link rel="stylesheet" href="styles-extended.css">
+
+    <style>
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+        }
+
+        .chatbot-page-wrapper {
+            width: 100%;
+            max-width: 600px;
+            padding: 20px;
+        }
+
+        .chatbot-window {
+            position: static;
+            width: 100%;
+            height: 90vh;
+            opacity: 1 !important;
+            transform: none !important;
+        }
+
+        .chatbot-container {
+            position: static;
+        }
+
+        .chatbot-button {
+            display: none;
+        }
+    </style>
 </head>
 
 <body>
-
-    <div class="content">
-        <div class="header">
-            <h1>Hotel CasaBlanca</h1>
-            <p>Tu Alojamiento preferido en Las Grutas</p>
-        </div>
-
-
-        <div class="header">
-            <h2>¿Tienes preguntas sobre nuestros servicios?</h2>
-            <p>Nuestro asistente virtual está aquí para ayudarte</p>
-        </div>
+    <div class="chatbot-page-wrapper">
+        <div id="chatbot-root"></div>
     </div>
 
+    <!-- Importar el componente (sin tipo babel, es JavaScript puro con React.createElement) -->
+    <script src="ChatbotComponent.js"></script>
 
+    <!-- Renderizar el componente -->
+    <script>
+        const { render } = ReactDOM;
+        const container = document.getElementById('chatbot-root');
+        render(React.createElement(FloatingChatBot), container);
+    </script>
 </body>
-
-<script>
-    // Inicializar manualmente
-    const chatbot = new FloatingChatbot({
-        assistantName: 'Asistente',
-        welcomeMessage: '¡Bienvenido!',
-        position: { bottom: '30px', right: '30px' },
-        primaryColor: '#3498db',
-        secondaryColor: '#8e44ad'
-    });
-
-    // Guardar referencia global si es necesario
-    window.chatbot = chatbot;
-</script>
 
 </html>

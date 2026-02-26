@@ -2,6 +2,7 @@
 import { Router } from 'express';
 import { AvailabilityAgent } from '../agents/availability.agent.js';
 import { ChatRequest, ChatResponse } from '../types/chat.types.js';
+import { getSessionLogger } from '../services/session-logger.js';
 
 export function createChatRoutes(agent: AvailabilityAgent): Router {
     const router = Router();
@@ -98,6 +99,110 @@ export function createChatRoutes(agent: AvailabilityAgent): Router {
             res.status(500).json({
                 error: 'Error refrescando las herramientas'
             });
+        }
+    });
+
+    /**
+     * Obtiene los logs de una sesión
+     */
+    router.get('/chat/logs/:sessionId', async (req, res) => {
+        try {
+            const { sessionId } = req.params;
+            const logger = getSessionLogger();
+            const logs = logger.getSessionLogs(sessionId);
+
+            res.json({
+                sessionId,
+                logCount: logs.length,
+                logs: logs
+            });
+        } catch (error) {
+            console.error('Error obteniendo logs:', error);
+            res.status(500).json({
+                error: 'Error obteniendo logs'
+            });
+        }
+    });
+
+    /**
+     * Obtiene el estado del logger
+     */
+    router.get('/chat/logger/status', async (req, res) => {
+        try {
+            const logger = getSessionLogger();
+            const status = logger.getStatus();
+
+            res.json({
+                status: 'ok',
+                logger: status
+            });
+        } catch (error) {
+            console.error('Error obteniendo estado del logger:', error);
+            res.status(500).json({
+                error: 'Error obteniendo estado del logger'
+            });
+        }
+    });
+
+    /**
+     * Obtiene el listado de todas las sesiones con su estado
+     */
+    router.get('/chat/sessions', async (req, res) => {
+        try {
+            const logger = getSessionLogger();
+            const sessions = logger.getAllSessions();
+
+            res.json({
+                status: 'ok',
+                sessionCount: sessions.length,
+                sessions: sessions
+            });
+        } catch (error) {
+            console.error('Error obteniendo listado de sesiones:', error);
+            res.status(500).json({
+                error: 'Error obteniendo listado de sesiones'
+            });
+        }
+    });
+
+    /**
+     * SSE: stream en tiempo real de eventos del logger para una sesión
+     */
+    router.get('/chat/logs/stream/:sessionId', (req, res) => {
+        try {
+            const { sessionId } = req.params;
+            const logger = getSessionLogger();
+
+            // Cabeceras SSE
+            res.writeHead(200, {
+                'Content-Type': 'text/event-stream',
+                'Cache-Control': 'no-cache',
+                Connection: 'keep-alive'
+            });
+
+            // Enviar un comentario inicial
+            res.write(`: connected to session ${sessionId}\n\n`);
+
+            const onLog = (event: any) => {
+                try {
+                    if (event.sessionId === sessionId) {
+                        const payload = JSON.stringify(event);
+                        res.write(`data: ${payload}\n\n`);
+                    }
+                } catch (err) {
+                    // Ignore send errors
+                }
+            };
+
+            logger.on('log', onLog);
+
+            // Clean up on client disconnect
+            req.on('close', () => {
+                logger.off('log', onLog);
+            });
+        } catch (error) {
+            console.error('Error en SSE logs stream:', error);
+            res.status(500).end();
         }
     });
 

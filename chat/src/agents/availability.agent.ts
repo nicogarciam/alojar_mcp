@@ -4,6 +4,7 @@ import { LLMService } from '../services/llm.service.js';
 import { MyMCPClient } from '../services/my-mcp.client.js';
 import { LLMMessage, ToolCall, MessageRole } from '../types/chat.types.js';
 import { systemPromptReserva } from './system_prompts.js';
+import { getSessionLogger } from '../services/session-logger.js';
 
 /**
  * Agente especializado en consultas de disponibilidad de alojamientos
@@ -25,6 +26,19 @@ export class AvailabilityAgent {
         sessionId: string = 'default'
     ): Promise<{ response: string; toolsUsed: string[]; error?: string }> {
         try {
+            const logger = getSessionLogger();
+            const startTime = Date.now();
+
+            // Log entrada del usuario
+            logger.log({
+                type: 'USER_MESSAGE',
+                sessionId,
+                data: {
+                    message: userMessage,
+                    timestamp: new Date().toISOString()
+                }
+            });
+
             // Verificar que el cliente MCP esté conectado
             if (!this.mcpClient.isClientConnected()) {
                 throw new Error('Servicio de disponibilidad no disponible. Por favor, intente más tarde.');
@@ -51,12 +65,26 @@ export class AvailabilityAgent {
             const llmResponse = await this.llmService.generateResponse(messages, tools, 'auto', systemPrompt);
             console.error('LLM Response:', JSON.stringify(llmResponse, null, 2));
 
+            // Log respuesta del LLM
+            logger.log({
+                type: 'LLM_RESPONSE',
+                sessionId,
+                data: {
+                    response: llmResponse.response,
+                    toolCalls: llmResponse.toolCalls?.map(tc => ({
+                        name: tc.function.name,
+                        args: tc.function.arguments
+                    })) || [],
+                    model: this.llmService.getProviderInfo().model
+                }
+            });
+
             const toolsUsed: string[] = [];
 
             // Procesar tool calls si existen y el proveedor las soporta
             if (llmResponse.toolCalls && llmResponse.toolCalls.length > 0) {
                 console.error('LLM hizo tool calls:', llmResponse.toolCalls.map(tc => tc.function.name));
-                const result = await this.processToolCalls(llmResponse, history, systemPrompt);
+                const result = await this.processToolCalls(llmResponse, history, systemPrompt, sessionId);
                 this.conversationHistory.set(sessionId, result.history);
                 return result.response;
             }
@@ -70,6 +98,13 @@ export class AvailabilityAgent {
 
             this.conversationHistory.set(sessionId, history);
 
+            logger.log({
+                type: 'SESSION_END',
+                sessionId,
+                data: { success: true },
+                duration: Date.now() - startTime
+            });
+
             return {
                 response: llmResponse.response,
                 toolsUsed
@@ -77,6 +112,16 @@ export class AvailabilityAgent {
 
         } catch (error) {
             console.error('Error en AvailabilityAgent:', error);
+
+            const logger = getSessionLogger();
+            logger.log({
+                type: 'ERROR',
+                sessionId,
+                data: {
+                    error: error instanceof Error ? error.message : 'Error desconocido',
+                    stack: error instanceof Error ? error.stack : undefined
+                }
+            });
 
             // Respuesta de error genérica
             const errorResponse = `Lo siento, hubo un error procesando tu solicitud. Por favor, intenta nuevamente. Error: ${error instanceof Error ? error.message : 'Error desconocido'}`;
@@ -92,12 +137,26 @@ export class AvailabilityAgent {
     private async processToolCalls(
         llmResponse: { response: string; toolCalls?: ToolCall[] },
         history: LLMMessage[],
-        systemMessage: LLMMessage
+        systemMessage: LLMMessage,
+        sessionId: string = 'default'
     ): Promise<{ response: { response: string; toolsUsed: string[]; error?: string }; history: LLMMessage[] }> {
+        const logger = getSessionLogger();
         const toolsUsed: string[] = [];
 
         for (const toolCall of llmResponse.toolCalls!) {
+            const toolStartTime = Date.now();
+
             try {
+                // Log llamada a tool
+                logger.log({
+                    type: 'TOOL_CALL',
+                    sessionId,
+                    data: {
+                        toolName: toolCall.function.name,
+                        arguments: JSON.parse(toolCall.function.arguments)
+                    }
+                });
+
                 const args = JSON.parse(toolCall.function.arguments);
                 // Validar parámetros antes de llamar al MCP
                 this.validateToolCall(toolCall.function.name, args);
@@ -108,10 +167,20 @@ export class AvailabilityAgent {
                 // Ejecutar la tool usando el MCP client (SDK espera un objeto { name, arguments })
                 const toolResult = await this.mcpClient.callTool(
                     toolCall.function.name,
-                    normalizedArgs
+                    normalizedArgs,
+                    sessionId
                 );
 
-                // console.error(`Ejecutar la tool usando el MCP client Resultado de tool ${toolCall.function.name}:`, toolResult);
+                // Log resultado de tool
+                logger.log({
+                    type: 'TOOL_RESULT',
+                    sessionId,
+                    data: {
+                        toolName: toolCall.function.name,
+                        result: toolResult.substring(0, 500) // Limitar a 500 chars para no saturar logs
+                    },
+                    duration: Date.now() - toolStartTime
+                });
 
                 toolsUsed.push(toolCall.function.name);
 
@@ -264,13 +333,12 @@ export class AvailabilityAgent {
     private getSystemPrompt(): LLMMessage {
         const providerInfo = this.llmService.getProviderInfo();
 
-        let systemPrompt = 'La fecha de hoy es: ' + new Date().toISOString().split('T')[0] + ' y son las ' + new Date().toISOString().split('T')[1].split('.')[0] + '\n.\n\n ';
+        let systemPrompt = 'La fecha de hoy es: ' + new Date().toISOString().split('T')[0] + ' y son las ' + new Date().toISOString().split('T')[1].split('.')[0] + '\n. ';
         console.error('systemPrompt Info:', systemPrompt);
         systemPrompt += systemPromptReserva;
         systemPrompt += `
     
-    Si hay algún error técnico, informa al usuario de manera clara y sugiere que intente más tarde.
-    
+    Si hay algún error técnico, informa al usuario de manera clara y sugiere que intente más tarde.\n
     Sé amable, profesional y proporciona información precisa.`;
 
         return {

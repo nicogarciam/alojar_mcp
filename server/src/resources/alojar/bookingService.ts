@@ -47,7 +47,7 @@ export class BookingService {
     async createBooking(payload: Record<string, any>): Promise<any> {
         try {
             // Normalizar campos numéricos comunes
-            const numericKeys = ['id', 'hotel_id', 'guest_id', 'booking_state_id', 'payment_state_id', 'pax', 'pax_adult', 'pax_minor', 'accommodation_count', 'days_to_confirm', 'days_to_cancel', 'total_price', 'booking_price', 'additional_price', 'list_price', 'garage_price', 'garage_nro', 'customer_id'];
+            const numericKeys = ['guest_id', 'booking_state_id', 'payment_state_id', 'pax', 'pax_adult', 'pax_minor', 'total_price', 'booking_price', 'additional_price', 'garage_price', 'garage_nro', 'customer_id'];
             for (const k of numericKeys) {
                 if (k in payload) payload[k] = this.ensureNumber(payload[k]);
             }

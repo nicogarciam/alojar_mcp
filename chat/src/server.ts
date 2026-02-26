@@ -6,6 +6,7 @@ import { LLMService } from './services/llm.service.js';
 import { AvailabilityAgent } from './agents/availability.agent.js';
 import { createChatRoutes } from './api/chat.routes.js';
 import { AlojarMCPClient } from './clients/alojar-v1.client.js';
+import { initializeSessionLogger } from './services/session-logger.js';
 
 // Cargar variables de entorno
 config();
@@ -26,6 +27,15 @@ class ChatbotServer {
         this.app.use(cors());
         this.app.use(express.json());
         this.app.use(express.static('public'));
+
+        // Inicializar logger de sesiones
+        initializeSessionLogger({
+            logsDir: process.env.LOGS_DIR || './logs',
+            persistToFile: true,
+            persistToDatabase: process.env.ENABLE_DB_PERSISTENCE === 'true' || false,
+            flushInterval: parseInt(process.env.LOG_FLUSH_INTERVAL || '5000'),
+            verbose: process.env.LOG_VERBOSE === 'true'
+        });
     }
 
     private async initializeServices(): Promise<void> {
@@ -46,6 +56,7 @@ class ChatbotServer {
             // Conectar al servidor MCP
             await mcpClient.connect();
             // Configurar servicio LLM con múltiples proveedores
+            // SupportedProviders = 'openai' | 'deepseek' | 'azure' | 'groq' | 'gemini';
             const llmService = new LLMService('gemini', mcpClient);
 
 
@@ -131,10 +142,32 @@ class ChatbotServer {
     }
 
     public start(): void {
-        this.app.listen(this.port, () => {
+        const httpServer = this.app.listen(this.port, () => {
             console.log(`🚀 Chatbot server running on port ${this.port}`);
             console.log(`📚 API documentation: http://localhost:${this.port}`);
             console.log(`🔧 Health check: http://localhost:${this.port}/health`);
+            console.log(`📋 Session logs: GET /api/chat/logs/:sessionId`);
+        });
+
+        // Graceful shutdown: flush logs antes de cerrar
+        process.on('SIGINT', async () => {
+            console.log('\n🛑 Recibida señal SIGINT, procediendo a shutdown gracefully...');
+            const logger = require('./services/session-logger.js').getSessionLogger();
+            await logger.shutdown();
+            httpServer.close(() => {
+                console.log('✅ Servidor cerrado');
+                process.exit(0);
+            });
+        });
+
+        process.on('SIGTERM', async () => {
+            console.log('\n🛑 Recibida señal SIGTERM, procediendo a shutdown gracefully...');
+            const logger = require('./services/session-logger.js').getSessionLogger();
+            await logger.shutdown();
+            httpServer.close(() => {
+                console.log('✅ Servidor cerrado');
+                process.exit(0);
+            });
         });
     }
 }

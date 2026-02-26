@@ -12,6 +12,12 @@ import { registerAllTools } from '../tools/alojar/register-all-tools.js';
 import { register } from 'node:module';
 import { registerCheckAvailabilityTool } from '../tools/alojar/check-availability.tool.js';
 import { registerListAccommodationPricesTool } from '../tools/alojar/list-accommodation-prices.tool.js';
+import { registerShowAccommodationDetailTool } from '../tools/alojar/show-accommodation-detail.tool.js';
+import { registerCreateBookingTool } from '../tools/alojar/create-booking.tool.js';
+import { registerListUsersTool } from '../tools/alojar/list-users.tool.js';
+import { registerCreateUserTool } from '../tools/alojar/create-user.tool.js';
+import { registerSearchCustomersTool } from '../tools/alojar/search-customers.tool.js';
+import { registerCreateCustomerTool } from '../tools/alojar/create-customer.tool.js';
 
 // Check for OAuth flag
 const useOAuth = process.argv.includes('--oauth');
@@ -28,12 +34,21 @@ export const getServer = () => {
     );
 
     // Register a tool for collecting user information
-    registerCollectUserInfoTool(server);
+    //registerCollectUserInfoTool(server);
     registerCheckAvailabilityTool(server);
-    registerListAccommodationPricesTool(server);
+    // registerListAccommodationPricesTool(server);
+    registerShowAccommodationDetailTool(server);
+    registerCreateBookingTool(server);
+    
+    registerSearchCustomersTool(server);
+    registerCreateCustomerTool(server);
+
+     //registerListUsersTool(server);
+    //registerCreateUserTool(server);
+
     // registerAllTools(server);
     // Create a simple resource at a fixed URI
-    server.registerResource(
+   /* server.registerResource(
         'greeting-resource',
         'https://example.com/greetings/default',
         {
@@ -51,10 +66,10 @@ export const getServer = () => {
                 ]
             };
         }
-    );
+    );*/
 
     // Create additional resources for ResourceLink demonstration
-    server.registerResource(
+    /*server.registerResource(
         'example-file-1',
         'file:///example/file1.txt',
         {
@@ -72,9 +87,9 @@ export const getServer = () => {
                 ]
             };
         }
-    );
+    );*/
 
-    server.registerResource(
+    /*server.registerResource(
         'example-file-2',
         'file:///example/file2.txt',
         {
@@ -92,7 +107,7 @@ export const getServer = () => {
                 ]
             };
         }
-    );
+    );*/
 
     return server;
 };

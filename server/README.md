@@ -499,27 +499,3 @@ $env:DEBUG="*"; npx @modelcontextprotocol/inspector
 set DEBUG=* && npx @modelcontextprotocol/inspector
 ```
 
-## 🤝 Contribuir
-
-Para contribuir al proyecto:
-
-1. Fork el repositorio
-2. Crea una rama para tu feature (`git checkout -b feature/AmazingFeature`)
-3. Commit tus cambios (`git commit -m 'Add some AmazingFeature'`)
-4. Push a la rama (`git push origin feature/AmazingFeature`)
-5. Abre un Pull Request
-
-## 📄 Licencia
-
-ISC
-
-## 🔗 Enlaces Útiles
-
-- [Documentación de MCP](https://modelcontextprotocol.io)
-- [MCP SDK GitHub](https://github.com/modelcontextprotocol/sdk)
-- [Cursor Editor](https://cursor.sh)
-- [Claude Desktop](https://claude.ai/desktop)
-
----
-
-**Desarrollado con ❤️ para la gestión eficiente de alojamientos**

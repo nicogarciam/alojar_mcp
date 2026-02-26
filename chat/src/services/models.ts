@@ -12,7 +12,7 @@ export interface LLMConfig {
 
 export const OpenAIModel: LLMConfig = {
     apiKey: process.env.OPENAI_API_KEY!,
-    model: 'gpt-3.5-turbo',
+    model: 'gpt-5-mini', //gpt-3.5-turbo
     baseURL: 'https://api.openai.com/v1',
     provider: 'openai', // Por defecto OpenAI
     temperature: 0.7,
@@ -42,7 +42,7 @@ export const GroqModel: LLMConfig = {
 export const GeminiModel: LLMConfig = {
     apiKey: process.env.GEMINI_API_KEY!,
     model: process.env.GEMINI_MODEL || 'gemini-2.5-flash', // ajusta según el modelo que uses
-    baseURL: process.env.GEMINI_BASE_URL || 'https://generativelanguage.googleapis.com/v1', // opcional, ajusta según integración
+    baseURL: process.env.GEMINI_BASE_URL || 'https://gemini.googleapis.com/v1beta', // opcional, ajusta según integración
     provider: 'gemini',
     temperature: 0.7,
     maxTokens: 1000,

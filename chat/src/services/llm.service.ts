@@ -3,7 +3,7 @@ import OpenAI from 'openai';
 import { LLMMessage, ToolCall, MessageRole } from '../types/chat.types.js';
 import { getLLMConfig, LLMConfig, SupportedProviders } from './models.js';
 import { MCPClient } from '../clients/mcpClient.js';
-import { GoogleGenAI, mcpToTool } from '@google/genai';
+import { GoogleGenAI } from '@google/genai';
 
 
 
@@ -68,17 +68,34 @@ export class LLMService {
                 };
 
                 if (availableTools && availableTools.length > 0 && this.supportsTools()) {
-                    requestConfig.tools = availableTools;
-                    requestConfig.tool_choice = tool_choice;
+                    // OpenAI expects `functions` and `function_call` for tool/function calling
+                    requestConfig.functions = availableTools;
+                    requestConfig.function_call = tool_choice;
                 }
 
                 const completion = await this.model.chat.completions.create(requestConfig);
                 const message = completion.choices[0]?.message;
 
+                // the SDK returns tool_calls when the model wants to invoke a function
                 if (message?.tool_calls && message.tool_calls.length > 0) {
                     return {
                         response: message.content || '',
                         toolCalls: message.tool_calls as ToolCall[]
+                    };
+                }
+
+                // some versions deliver function_call instead of tool_calls
+                if ((message as any)?.function_call) {
+                    const fc = (message as any).function_call;
+                    return {
+                        response: message.content || '',
+                        toolCalls: [{
+                            id: fc.name || '1',
+                            function: {
+                                name: fc.name,
+                                arguments: fc.arguments
+                            }
+                        } as ToolCall]
                     };
                 }
 
@@ -89,6 +106,10 @@ export class LLMService {
 
             console.error(`Usando GEMINI`);
 
+            // Obtener herramientas en formato para LLM (OpenAI-style) y convertir a formato Gemini
+            const mcpTools = await this.mcpClient.getToolsForLLM();
+            const geminiToolsConfig = this.mcpToolsToGeminiFormat(mcpTools);
+
             const prompt = messages.map(m => {
                 const role = m.role || 'user';
                 const name = role === 'assistant' ? 'Assistant' : role === 'system' ? 'System' : 'User';
@@ -96,25 +117,30 @@ export class LLMService {
                 return `${name}: ${content}`;
             }).join('\n\n');
 
+            const config: Record<string, unknown> = {
+                systemInstruction: systemPrompt?.content
+            };
+            // Pasar tools solo cuando tool_choice es 'auto' y hay herramientas
+            if (tool_choice === 'auto' && geminiToolsConfig.length > 0) {
+                config.tools = geminiToolsConfig;
+            }
+
             const response = await (this.model as GoogleGenAI).models.generateContent({
-                model: "gemini-2.5-flash",
+                model: this.config.model,
                 contents: prompt,
-                config: {
-                    tools: [mcpToTool(this.mcpClient.client)],
-                    systemInstruction: systemPrompt?.content
-                },
+                config
             });
-            console.error('Gemini functionCalls:', JSON.stringify(response, null, 2));
+            console.error('Gemini response (functionCalls):', response?.functionCalls != null ? JSON.stringify(response.functionCalls) : 'none');
 
-            if (response?.functionCalls && response.functionCalls.length > 0) {
-
+            const toolCalls = this.extractGeminiToolCalls(response);
+            if (toolCalls && toolCalls.length > 0) {
                 return {
-                    response: response.text || '',
-                    toolCalls: response.functionCalls as ToolCall[]
+                    response: response?.text ?? '',
+                    toolCalls
                 };
             }
 
-            return { response: response.text || 'Lo siento, no pude obtener una respuesta de Gemini.' };
+            return { response: response?.text ?? 'Lo siento, no pude obtener una respuesta de Gemini.' };
 
         } catch (error) {
             console.error('Error en LLM:', error);
@@ -131,8 +157,19 @@ export class LLMService {
         try {
             // Verificar que el MCP client esté conectado
             if (!this.mcpClient.isClientConnected()) {
-                console.warn('MCP client no conectado, no hay herramientas disponibles');
-                return undefined;
+                console.warn('MCP client no conectado, intentando reconectar...');
+                try {
+                    // Usar el método tipado reconnect() expuesto por la interfaz MCPClient
+                    if (typeof this.mcpClient.reconnect === 'function') {
+                        await this.mcpClient.reconnect();
+                    } else {
+                        // Fallback por compatibilidad: llamar connect()
+                        await this.mcpClient.connect();
+                    }
+                } catch (reErr) {
+                    console.warn('Reconexión MCP falló:', reErr);
+                    return undefined;
+                }
             }
 
             const tools = await this.mcpClient.getToolsForLLM();
@@ -149,6 +186,65 @@ export class LLMService {
             console.error('Error obteniendo herramientas del MCP:', error);
             return undefined;
         }
+    }
+
+    /**
+     * Convierte herramientas del formato MCP/OpenAI al formato que espera Gemini:
+     * Tool = { functionDeclarations: [ { name, description, parameters } ] }
+     */
+    private mcpToolsToGeminiFormat(mcpTools: any[]): any[] {
+        if (!mcpTools || mcpTools.length === 0) return [];
+        const functionDeclarations = mcpTools.map((t: any) => {
+            const fn = t.function ?? t;
+            const name = fn.name ?? t.name;
+            const description = fn.description ?? t.description ?? '';
+            const params = fn.parameters ?? fn.inputSchema ?? t.parameters;
+            return {
+                name,
+                description,
+                parameters: this.normalizeParametersForGemini(params)
+            };
+        }).filter((d: any) => d.name);
+        if (functionDeclarations.length === 0) return [];
+        return [{ functionDeclarations }];
+    }
+
+    /**
+     * Normaliza el schema de parámetros (JSON Schema / OpenAI) al formato que acepta Gemini.
+     * Gemini acepta type como string ('object', 'string', etc.) o el enum Type.
+     */
+    private normalizeParametersForGemini(params: any): any {
+        if (!params || typeof params !== 'object') return { type: 'object', properties: {} };
+        const p = params.properties ?? {};
+        const required = params.required ?? [];
+        return {
+            type: (params.type ?? 'object').toString().toLowerCase(),
+            properties: p,
+            ...(required.length > 0 ? { required } : {})
+        };
+    }
+
+    /**
+     * Extrae tool calls de la respuesta de Gemini.
+     * El SDK puede devolver functionCalls en la raíz o dentro de candidates[].content.parts.
+     */
+    private extractGeminiToolCalls(response: any): ToolCall[] | undefined {
+        if (!response) return undefined;
+        let rawCalls = response.functionCalls;
+        if (!rawCalls && response.candidates?.[0]?.content?.parts) {
+            rawCalls = response.candidates[0].content.parts
+                .filter((p: any) => p.functionCall != null)
+                .map((p: any) => p.functionCall);
+        }
+        if (!rawCalls || !Array.isArray(rawCalls) || rawCalls.length === 0) return undefined;
+        return rawCalls.map((fc: any, i: number) => ({
+            id: fc.id ?? `call_${i}_${fc.name ?? ''}`,
+            type: 'function' as const,
+            function: {
+                name: fc.name ?? '',
+                arguments: typeof fc.args === 'string' ? fc.args : JSON.stringify(fc.args ?? {})
+            }
+        }));
     }
 
     /**
