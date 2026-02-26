@@ -313,6 +313,7 @@
         .input-group {
             display: flex;
             gap: 10px;
+            align-items: center;
         }
 
         .input-group textarea {
@@ -336,7 +337,7 @@
             border: none;
             border-radius: 50%;
             width: 40px;
-            height: 40px;
+            height: 45px;
             display: flex;
             align-items: center;
             justify-content: center;
@@ -691,6 +692,16 @@
 
 
                             <div className="input-group">
+                                <button
+                                    className="send-button"
+                                    onClick={() => setSuggestion(!suggestion)}
+                                >
+                                    {loading ? (
+                                        <i className="fas fa-spinner fa-spin"></i>
+                                    ) : (
+                                        <i className="fa-solid fa-comment-dots"></i>
+                                    )}
+                                </button>
                                 <textarea
                                     placeholder="Escribe tu mensaje..."
                                     value={input}
