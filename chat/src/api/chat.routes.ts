@@ -3,6 +3,8 @@ import { Router } from 'express';
 import { AvailabilityAgent } from '../agents/availability.agent.js';
 import { ChatRequest, ChatResponse } from '../types/chat.types.js';
 import { getSessionLogger } from '../services/session-logger.js';
+import { LLMService } from '../services/llm.service.js';
+import { SupportedProviders } from '../services/models.js';
 
 export function createChatRoutes(agent: AvailabilityAgent): Router {
     const router = Router();
@@ -12,7 +14,7 @@ export function createChatRoutes(agent: AvailabilityAgent): Router {
      */
     router.post('/chat', async (req, res) => {
         try {
-            const { message, sessionId = 'default' }: ChatRequest = req.body;
+            const { message, sessionId = 'default', provider, model }: ChatRequest & { provider?: SupportedProviders, model?: string } = req.body;
 
             if (!message || message.trim().length === 0) {
                 return res.status(400).json({
@@ -20,7 +22,19 @@ export function createChatRoutes(agent: AvailabilityAgent): Router {
                 });
             }
             console.error(`Mensaje recibido:`, message);
-            const { response, toolsUsed } = await agent.processMessage(message, sessionId);
+
+            let activeAgent = agent;
+            if (provider || model) {
+                // Dynamically recreate agent with specific LLM config for this request
+                const mcpClient = (agent as any).mcpClient; // Access existing MCP client
+                const llmService = new LLMService(provider || 'gemini', mcpClient);
+                if (model) {
+                    (llmService as any).config.model = model;
+                }
+                activeAgent = new AvailabilityAgent(llmService, mcpClient);
+            }
+
+            const { response, toolsUsed } = await activeAgent.processMessage(message, sessionId);
             // console.error(`Respuesta generada [sessionId=${sessionId}]:`, response);
 
             const chatResponse: ChatResponse = {

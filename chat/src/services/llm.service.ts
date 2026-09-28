@@ -59,18 +59,27 @@ export class LLMService {
             // Ruta para proveedores distintos de Gemini: usar SDK (OpenAI)
             if (this.provider !== 'gemini') {
                 console.error(`Usando NO GEMINI`);
+                const formattedMessages: any[] = [];
+                if (systemPrompt && systemPrompt.content) {
+                    formattedMessages.push({
+                        role: 'system',
+                        content: typeof systemPrompt.content === 'string'
+                            ? systemPrompt.content
+                            : JSON.stringify(systemPrompt.content)
+                    });
+                }
+                formattedMessages.push(...messages);
+
                 const requestConfig: any = {
                     model: this.config.model,
-                    messages: messages as any,
+                    messages: formattedMessages,
                     temperature: this.config.temperature,
                     max_tokens: this.config.maxTokens,
-                    systemPrompt: systemPrompt
                 };
 
                 if (availableTools && availableTools.length > 0 && this.supportsTools()) {
-                    // OpenAI expects `functions` and `function_call` for tool/function calling
-                    requestConfig.functions = availableTools;
-                    requestConfig.function_call = tool_choice;
+                    requestConfig.tools = availableTools;
+                    requestConfig.tool_choice = tool_choice;
                 }
 
                 const completion = await this.model.chat.completions.create(requestConfig);
@@ -151,9 +160,9 @@ export class LLMService {
 
 
     /**
- * Obtiene las herramientas disponibles del MCP server
- */
-    async getToolsAvailables(): Promise<any[] | undefined> {
+     * Obtiene las herramientas disponibles del MCP server, con opción a filtrar.
+     */
+    async getToolsAvailables(excludeTools: string[] = []): Promise<any[] | undefined> {
         try {
             // Verificar que el MCP client esté conectado
             if (!this.mcpClient.isClientConnected()) {
@@ -172,14 +181,22 @@ export class LLMService {
                 }
             }
 
-            const tools = await this.mcpClient.getToolsForLLM();
+            let tools = await this.mcpClient.getToolsForLLM();
+
+            // Filtrar herramientas si se pide
+            if (excludeTools.length > 0) {
+                tools = tools.filter(t => {
+                    const name = t.function?.name ?? t.name;
+                    return !excludeTools.includes(name);
+                });
+            }
 
             if (tools.length === 0) {
                 console.warn('No hay herramientas disponibles en el MCP server');
                 return undefined;
             }
 
-            console.log(`🛠️  Cargadas ${tools.length} herramientas del MCP:`, tools.map(t => t.function.name));
+            console.log(`🛠️  Cargadas ${tools.length} herramientas del MCP:`, tools.map(t => t.function?.name ?? t.name));
             return tools;
 
         } catch (error) {

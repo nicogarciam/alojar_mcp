@@ -4,7 +4,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Hotel CasaBlanca - Tu Alojamiento Preferido</title>
+    <title>Hotel CasaBlanca Las Grutas — Asistente Virtual</title>
+    <meta name="description" content="Consultá disponibilidad, gestioná reservas y precios del Hotel CasaBlanca Las Grutas con nuestra IA.">
+
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 
     <!-- React CDN -->
     <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
@@ -13,143 +19,257 @@
     <!-- Babel para JSX -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
-    <!-- Bootstrap para estilos -->
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-
     <!-- Marked.js para renderizado de Markdown -->
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 
     <!-- DOMPurify para sanitizar HTML -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.5/purify.min.js"></script>
 
-    <!-- Estilos desacoplados -->
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+
+    <!-- Estilos -->
     <link rel="stylesheet" href="styles-extended.css">
 </head>
 
 <body>
-    <div class="content">
-        <div class="header">
-            <h1>Hotel CasaBlanca</h1>
-            <p>Tu Alojamiento preferido en Las Grutas</p>
-        </div>
 
-        <div class="header">
-            <h2>¿Tienes preguntas sobre nuestros servicios?</h2>
-            <p>Nuestro asistente virtual está aquí para ayudarte</p>
+    <!-- Hero section -->
+    <div class="hero">
+        <div class="hero-content">
+            <div class="hotel-badge">⭐ Hotel Boutique</div>
+            <h1>Hotel CasaBlanca</h1>
+            <p class="hero-subtitle">Las Grutas · Patagonia Argentina</p>
+            <div class="hero-tags">
+                <span class="tag"><i class="fas fa-water"></i> Frente al mar</span>
+                <span class="tag"><i class="fas fa-wifi"></i> WiFi incluido</span>
+                <span class="tag"><i class="fas fa-car"></i> Estacionamiento</span>
+            </div>
         </div>
     </div>
 
+    <!-- Chatbot root -->
     <div id="chatbot-root"></div>
 
     <script type="text/babel">
-        const FloatingChatBot = () => {
-            const { useState, useRef, useEffect } = React;
+        const { useState, useRef, useEffect, useCallback } = React;
 
-            marked.setOptions({
-                breaks: true,
-                gfm: true,
-                highlight: function (code, lang) {
-                    return code;
-                }
+        // ─── Configuración ───────────────────────────────────────────────────
+        const API_BASE = 'http://localhost:3000/api';
+
+        const INITIAL_SUGGESTIONS = [
+            { icon: "📅", text: "Quiero ver disponibilidad para este fin de semana" },
+            { icon: "🏨", text: "¿Qué alojamientos tienen para 4 personas?" },
+            { icon: "💰", text: "¿Cuánto cuesta una habitación en diciembre?" },
+            { icon: "📋", text: "Quiero hacer una reserva" },
+        ];
+
+        // ─── Hooks ───────────────────────────────────────────────────────────
+        function useLocalTime(timestamp) {
+            return new Date(timestamp).toLocaleTimeString('es-AR', {
+                hour: '2-digit', minute: '2-digit'
             });
+        }
 
+        // ─── Componentes ─────────────────────────────────────────────────────
+
+        const TypingIndicator = () => (
+            <div className="message assistant">
+                <div className="msg-avatar assistant-avatar">
+                    <span>X</span>
+                </div>
+                <div className="msg-bubble">
+                    <div className="typing-indicator">
+                        <span></span><span></span><span></span>
+                    </div>
+                </div>
+            </div>
+        );
+
+        const ToolsBadge = ({ tools }) => {
+            if (!tools || tools.length === 0) return null;
+            const labels = {
+                check_availability: '🔍 Disponibilidad',
+                create_booking: '✅ Reserva creada',
+                list_bookings: '📋 Reservas',
+                get_booking: '📄 Detalle reserva',
+                update_booking: '✏️ Reserva actualizada',
+                cancel_booking: '❌ Reserva cancelada',
+                list_accommodation_prices: '💰 Precios',
+                price_grid: '📊 Grilla precios',
+                create_accommodation_price: '➕ Precio creado',
+                update_accommodation_price: '✏️ Precio actualizado',
+                delete_accommodation_price: '🗑️ Precio eliminado',
+                search_customers: '👤 Cliente buscado',
+                create_customer: '👤 Cliente creado',
+                show_accommodation_detail: '🏨 Detalle alojamiento',
+            };
+            return (
+                <div className="tools-badge-row">
+                    {tools.map((t, i) => (
+                        <span key={i} className="tool-badge">
+                            {labels[t] || `🔧 ${t}`}
+                        </span>
+                    ))}
+                </div>
+            );
+        };
+
+        const Message = ({ message }) => {
+            const isUser = message.role === 'user';
+            const isSystem = message.role === 'system';
+            const time = useLocalTime(message.timestamp);
+
+            const renderMarkdown = (content) => {
+                const rawMarkup = marked.parse(content || '');
+                const sanitized = DOMPurify.sanitize(rawMarkup);
+                return { __html: sanitized };
+            };
+
+            if (isSystem) {
+                return (
+                    <div className="message-system-wrapper">
+                        <div className="message-system">
+                            <div dangerouslySetInnerHTML={renderMarkdown(message.content)} />
+                        </div>
+                    </div>
+                );
+            }
+
+            return (
+                <div className={`message ${isUser ? 'user' : 'assistant'}`}>
+                    {!isUser && (
+                        <div className="msg-avatar assistant-avatar">
+                            <span>X</span>
+                        </div>
+                    )}
+                    <div className="msg-content-col">
+                        <div className="msg-bubble">
+                            {isUser ? (
+                                <span>{message.content}</span>
+                            ) : (
+                                <div className="markdown-content" dangerouslySetInnerHTML={renderMarkdown(message.content)} />
+                            )}
+                        </div>
+                        <ToolsBadge tools={message.toolsUsed} />
+                        <span className="msg-time">{time}</span>
+                    </div>
+                    {isUser && (
+                        <div className="msg-avatar user-avatar">
+                            <i className="fas fa-user"></i>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        const SuggestionChips = ({ suggestions, onSelect, loading }) => (
+            <div className="suggestions-grid">
+                {suggestions.map((s, i) => (
+                    <button
+                        key={i}
+                        className="suggestion-chip"
+                        onClick={() => onSelect(s.text)}
+                        disabled={loading}
+                    >
+                        <span className="chip-icon">{s.icon}</span>
+                        <span>{s.text}</span>
+                    </button>
+                ))}
+            </div>
+        );
+
+        // ─── Componente principal ─────────────────────────────────────────────
+        const FloatingChatBot = () => {
             const [messages, setMessages] = useState([]);
             const [input, setInput] = useState('');
             const [loading, setLoading] = useState(false);
-            const [suggestion, setSuggestion] = useState(true);
-            const [suggestions, setSuggestions] = useState([]);
+            const [showSuggestions, setShowSuggestions] = useState(true);
             const [isOpen, setIsOpen] = useState(false);
-            const [sessionId] = useState(() => `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`);
+            const [hasUnread, setHasUnread] = useState(false);
+            const [sessionId] = useState(() =>
+                `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+            );
             const messagesEndRef = useRef(null);
+            const inputRef = useRef(null);
 
-            const API_BASE = 'http://localhost:3000/api';
+            marked.setOptions({ breaks: true, gfm: true });
 
-            const initialSuggestions = [
-                "¿Tienen disponibilidad para 2 personas este fin de semana?",
-                "Necesito alojamiento para 4 personas del 15 al 20 de diciembre",
-                "Quiero consultar disponibilidad en el hotel 2",
-                "¿Qué alojamientos tienen para 3 personas?"
-            ];
-
-            const scrollToBottom = () => {
-                messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-            };
-
+            // Scroll al fondo cuando llegan mensajes
             useEffect(() => {
-                scrollToBottom();
-            }, [messages]);
+                messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+            }, [messages, loading]);
 
+            // Focus en el input cuando abre
             useEffect(() => {
-                setSuggestions(initialSuggestions);
+                if (isOpen) {
+                    setTimeout(() => inputRef.current?.focus(), 300);
+                }
+            }, [isOpen]);
+
+            // Mensaje de bienvenida
+            useEffect(() => {
                 setMessages([{
                     id: 'welcome',
                     role: 'system',
-                    content: '¡Hola! 👋 Soy Ximena. ¿En qué puedo ayudarte hoy?',
+                    content: '¡Hola! 👋 Soy **Ximena**, tu asistente virtual.\n\nPuedo ayudarte con:\n- 📅 Consultar disponibilidad\n- 📋 Gestionar reservas\n- 💰 Ver y administrar precios\n\n¿En qué puedo ayudarte hoy?',
                     timestamp: new Date()
                 }]);
             }, []);
 
-            const renderMarkdown = (content) => {
-                const rawMarkup = marked.parse(content);
-                const sanitizedMarkup = DOMPurify.sanitize(rawMarkup);
-                return { __html: sanitizedMarkup };
-            };
+            const sendMessage = useCallback(async (messageText = null) => {
+                const text = (messageText || input).trim();
+                if (!text || loading) return;
 
-            const sendMessage = async (messageText = null) => {
-                const text = messageText || input;
-                if (!text.trim() || loading) return;
+                setShowSuggestions(false);
+                setInput('');
+                setLoading(true);
 
-                const userMessage = {
+                const userMsg = {
                     id: `msg_${Date.now()}`,
                     role: 'user',
                     content: text,
                     timestamp: new Date()
                 };
-
-                setMessages(prev => [...prev, userMessage]);
-                setInput('');
-                setLoading(true);
+                setMessages(prev => [...prev, userMsg]);
 
                 try {
                     const response = await fetch(`${API_BASE}/chat`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ message: text, sessionId: sessionId })
+                        body: JSON.stringify({ message: text, sessionId })
                     });
 
-                    if (!response.ok) throw new Error(`Error: ${response.status}`);
+                    if (!response.ok) throw new Error(`Error ${response.status}`);
 
                     const data = await response.json();
-                    const assistantMessage = {
-                        id: data.messageId,
+                    const assistantMsg = {
+                        id: data.messageId || `ai_${Date.now()}`,
                         role: 'assistant',
                         content: data.response,
-                        timestamp: new Date(data.timestamp),
-                        toolsUsed: data.toolsUsed
+                        timestamp: new Date(data.timestamp || Date.now()),
+                        toolsUsed: data.toolsUsed || []
                     };
 
-                    setMessages(prev => [...prev, assistantMessage]);
+                    setMessages(prev => [...prev, assistantMsg]);
+
+                    if (!isOpen) setHasUnread(true);
+
                 } catch (error) {
-                    console.error('Error:', error);
-                    const errorMessage = {
-                        id: `error_${Date.now()}`,
+                    console.error('Error en chat:', error);
+                    setMessages(prev => [...prev, {
+                        id: `err_${Date.now()}`,
                         role: 'assistant',
-                        content: '⚠️ Lo siento, hubo un error procesando tu mensaje. Por favor, intenta nuevamente.',
+                        content: '⚠️ Hubo un error procesando tu mensaje. Por favor, intentá nuevamente.',
                         timestamp: new Date()
-                    };
-                    setMessages(prev => [...prev, errorMessage]);
+                    }]);
                 } finally {
                     setLoading(false);
+                    setTimeout(() => inputRef.current?.focus(), 100);
                 }
-            };
+            }, [input, loading, isOpen, sessionId]);
 
-            const handleSuggestionClick = (suggestion) => {
-                sendMessage(suggestion);
-                setSuggestion(false);
-            };
-
-            const handleKeyPress = (e) => {
+            const handleKeyDown = (e) => {
                 if (e.key === 'Enter' && !e.shiftKey) {
                     e.preventDefault();
                     sendMessage();
@@ -157,97 +277,130 @@
             };
 
             const toggleChat = () => {
-                setIsOpen(!isOpen);
+                setIsOpen(prev => {
+                    if (!prev) setHasUnread(false);
+                    return !prev;
+                });
+            };
+
+            const handleTextareaInput = (e) => {
+                setInput(e.target.value);
+                // Auto-resize
+                e.target.style.height = 'auto';
+                e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
             };
 
             return (
                 <div className="chatbot-container">
+
+                    {/* Ventana del chat */}
                     <div className={`chatbot-window ${isOpen ? 'open' : ''}`}>
+
+                        {/* Header */}
                         <div className="chat-header">
+                            <div className="chat-header-avatar">
+                                <div className="header-avatar-circle">X</div>
+                                <div className="header-status-dot"></div>
+                            </div>
                             <div className="chat-header-info">
                                 <h3>Ximena</h3>
-                                <p>Asistente Virtual • En línea</p>
+                                <p>Asistente Virtual · Hotel CasaBlanca</p>
                             </div>
-                            <button className="close-button" onClick={toggleChat}>
-                                <i className="fas fa-times"></i>
-                            </button>
+                            <div className="header-actions">
+                                <button
+                                    className="header-action-btn"
+                                    title="Nueva conversación"
+                                    onClick={() => {
+                                        setMessages([{
+                                            id: 'welcome-reset',
+                                            role: 'system',
+                                            content: '¡Conversación reiniciada! ¿En qué puedo ayudarte?',
+                                            timestamp: new Date()
+                                        }]);
+                                        setShowSuggestions(true);
+                                    }}
+                                >
+                                    <i className="fas fa-rotate-right"></i>
+                                </button>
+                                <button className="header-action-btn" onClick={toggleChat}>
+                                    <i className="fas fa-xmark"></i>
+                                </button>
+                            </div>
                         </div>
 
+                        {/* Mensajes */}
                         <div className="chat-messages">
-                            {messages.map((message) => (
-                                <div key={message.id} className={`message ${message.role === 'user' ? 'user' : message.role === 'system' ? 'message-system' : 'assistant'}`}>
-                                    <div className="message-header">
-                                        <span>{message.role === 'user' ? 'Tú' : 'Ximena'}</span>
-                                        <span>{message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                                    </div>
-
-                                    {message.role === 'assistant' ? (
-                                        <div className="markdown-content" dangerouslySetInnerHTML={renderMarkdown(message.content)} />
-                                    ) : (
-                                        <div>{message.content}</div>
-                                    )}
-
-                                    {message.toolsUsed && message.toolsUsed.length > 0 && (
-                                        <div className="tools-used">
-                                            <i className="fas fa-tools me-1"></i>
-                                            Herramientas usadas: {message.toolsUsed.join(', ')}
-                                        </div>
-                                    )}
-                                </div>
+                            {messages.map(msg => (
+                                <Message key={msg.id} message={msg} />
                             ))}
 
-                            {loading && (
-                                <div className="message assistant">
-                                    <div className="typing-indicator">
-                                        <span></span><span></span><span></span>
-                                    </div>
-                                </div>
-                            )}
+                            {loading && <TypingIndicator />}
 
                             <div ref={messagesEndRef} />
                         </div>
 
-                        <div className="chat-input-container">
-                            {suggestion && (
-                                <div className="suggestions">
-                                    {suggestions.map((sugg, index) => (
-                                        <button key={index} className="suggestion-chip" onClick={() => handleSuggestionClick(sugg)} disabled={loading}>
-                                            {sugg}
-                                        </button>
-                                    ))}
-                                </div>
-                            )}
+                        {/* Sugerencias */}
+                        {showSuggestions && messages.length <= 1 && (
+                            <div className="suggestions-container">
+                                <p className="suggestions-label">Sugerencias rápidas</p>
+                                <SuggestionChips
+                                    suggestions={INITIAL_SUGGESTIONS}
+                                    onSelect={(text) => sendMessage(text)}
+                                    loading={loading}
+                                />
+                            </div>
+                        )}
 
-                            <div className="input-group">
-                                <button className="send-button" onClick={() => setSuggestion(!suggestion)}>
-                                    {loading ? <i className="fas fa-spinner fa-spin"></i> : <i className="fa-solid fa-comment-dots"></i>}
-                                </button>
+                        {/* Input */}
+                        <div className="chat-input-container">
+                            <div className="input-wrapper">
                                 <textarea
-                                    placeholder="Escribe tu mensaje..."
+                                    ref={inputRef}
+                                    id="chat-input"
+                                    placeholder="Escribí tu mensaje..."
                                     value={input}
+                                    onInput={handleTextareaInput}
                                     onChange={(e) => setInput(e.target.value)}
-                                    onKeyPress={handleKeyPress}
+                                    onKeyDown={handleKeyDown}
                                     disabled={loading}
                                     rows="1"
                                 />
-                                <button className="send-button" onClick={() => sendMessage()} disabled={!input.trim() || loading}>
-                                    {loading ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-paper-plane"></i>}
+                                <button
+                                    id="send-btn"
+                                    className={`send-button ${(!input.trim() || loading) ? 'disabled' : ''}`}
+                                    onClick={() => sendMessage()}
+                                    disabled={!input.trim() || loading}
+                                >
+                                    {loading
+                                        ? <i className="fas fa-circle-notch fa-spin"></i>
+                                        : <i className="fas fa-paper-plane"></i>
+                                    }
                                 </button>
                             </div>
+                            <p className="input-hint">Enter para enviar · Shift+Enter para nueva línea</p>
                         </div>
                     </div>
 
-                    <button className="chatbot-button" onClick={toggleChat}>
-                        <i className="fas fa-comment-dots"></i>
+                    {/* Botón flotante */}
+                    <button
+                        id="chatbot-toggle-btn"
+                        className={`chatbot-button ${isOpen ? 'open' : ''}`}
+                        onClick={toggleChat}
+                        aria-label="Abrir asistente virtual"
+                    >
+                        {isOpen
+                            ? <i className="fas fa-xmark"></i>
+                            : <i className="fas fa-comment-dots"></i>
+                        }
+                        {hasUnread && !isOpen && <span className="unread-dot"></span>}
                     </button>
                 </div>
             );
         };
 
-        const { render } = ReactDOM;
         const container = document.getElementById('chatbot-root');
-        render(<FloatingChatBot />, container);
+        ReactDOM.createRoot(container).render(<FloatingChatBot />);
     </script>
-</body>
 
+</body>
 </html>

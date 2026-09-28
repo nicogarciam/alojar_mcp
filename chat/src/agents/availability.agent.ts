@@ -1,14 +1,18 @@
 // src/agents/availability.agent.ts
 import { MCPClient } from '../clients/mcpClient.js';
 import { LLMService } from '../services/llm.service.js';
-import { MyMCPClient } from '../services/my-mcp.client.js';
 import { LLMMessage, ToolCall, MessageRole } from '../types/chat.types.js';
 import { systemPromptReserva } from './system_prompts.js';
 import { getSessionLogger } from '../services/session-logger.js';
 
+/** Maximum agentic loop iterations to prevent infinite loops */
+const MAX_AGENTIC_ITERATIONS = 8;
+
 /**
- * Agente especializado en consultas de disponibilidad de alojamientos
- * Compatible con múltiples proveedores LLM (OpenAI, DeepSeek, etc.)
+ * General-purpose hotel assistant agent.
+ * Handles: availability queries, booking management, and price management.
+ * Uses a real agentic loop: keeps processing tool calls until the LLM
+ * produces a final text response or the iteration limit is reached.
  */
 export class AvailabilityAgent {
     private conversationHistory: Map<string, LLMMessage[]> = new Map();
@@ -19,101 +23,113 @@ export class AvailabilityAgent {
     ) { }
 
     /**
-     * Procesa un mensaje del usuario y genera una respuesta
+     * Processes a user message through the agentic loop and returns the final response.
      */
     async processMessage(
         userMessage: string,
         sessionId: string = 'default'
     ): Promise<{ response: string; toolsUsed: string[]; error?: string }> {
+        const logger = getSessionLogger();
+        const startTime = Date.now();
+
+        logger.log({
+            type: 'USER_MESSAGE',
+            sessionId,
+            data: { message: userMessage, timestamp: new Date().toISOString() }
+        });
+
         try {
-            const logger = getSessionLogger();
-            const startTime = Date.now();
-
-            // Log entrada del usuario
-            logger.log({
-                type: 'USER_MESSAGE',
-                sessionId,
-                data: {
-                    message: userMessage,
-                    timestamp: new Date().toISOString()
-                }
-            });
-
-            // Verificar que el cliente MCP esté conectado
             if (!this.mcpClient.isClientConnected()) {
-                throw new Error('Servicio de disponibilidad no disponible. Por favor, intente más tarde.');
+                throw new Error('Servicio no disponible. Por favor, intentá más tarde.');
             }
 
-            // Obtener o inicializar el historial de conversación
             const history = this.getConversationHistory(sessionId);
+            history.push({ role: 'user', content: userMessage });
 
-            // Agregar mensaje del usuario al historial
-            const userMessageObj: LLMMessage = {
-                role: 'user',
-                content: userMessage
-            };
-            history.push(userMessageObj);
-
-            // Mensaje del sistema que define el comportamiento del agente
-            const systemPrompt = this.getSystemPrompt();
-            const messages = history;
-
-
-            // Obtener herramientas dinámicamente del MCP
-            const tools = await this.llmService.getToolsAvailables();
-            // Generar respuesta del LLM
-            const llmResponse = await this.llmService.generateResponse(messages, tools, 'auto', systemPrompt);
-            console.error('LLM Response:', JSON.stringify(llmResponse, null, 2));
-
-            // Log respuesta del LLM
-            logger.log({
-                type: 'LLM_RESPONSE',
-                sessionId,
-                data: {
-                    response: llmResponse.response,
-                    toolCalls: llmResponse.toolCalls?.map(tc => ({
-                        name: tc.function.name,
-                        args: tc.function.arguments
-                    })) || [],
-                    model: this.llmService.getProviderInfo().model
-                }
-            });
-
+            const systemMessage = this.buildSystemMessage();
             const toolsUsed: string[] = [];
 
-            // Procesar tool calls si existen y el proveedor las soporta
-            if (llmResponse.toolCalls && llmResponse.toolCalls.length > 0) {
-                console.error('LLM hizo tool calls:', llmResponse.toolCalls.map(tc => tc.function.name));
-                const result = await this.processToolCalls(llmResponse, history, systemPrompt, sessionId);
-                this.conversationHistory.set(sessionId, result.history);
-                return result.response;
+            // Lista de herramientas administrativas que el chatbot no necesita
+            const ADMIN_TOOLS = [
+                'create_accommodation_price', 
+                'update_accommodation_price', 
+                'delete_accommodation_price',
+                'create_user',
+                'list_users'
+            ];
+
+            // ─── Agentic loop ────────────────────────────────────────────────
+            for (let iteration = 0; iteration < MAX_AGENTIC_ITERATIONS; iteration++) {
+                const tools = await this.llmService.getToolsAvailables(ADMIN_TOOLS);
+                // On iterations after the first we allow tool calls freely;
+                // on the last iteration we force a text-only response.
+                const toolChoice = iteration === MAX_AGENTIC_ITERATIONS - 1 ? 'none' : 'auto';
+
+                const llmResponse = await this.llmService.generateResponse(
+                    history,
+                    tools,
+                    toolChoice,
+                    systemMessage
+                );
+
+                logger.log({
+                    type: 'LLM_RESPONSE',
+                    sessionId,
+                    data: {
+                        iteration,
+                        response: llmResponse.response?.substring(0, 300),
+                        toolCallCount: llmResponse.toolCalls?.length ?? 0,
+                        model: this.llmService.getProviderInfo().model
+                    }
+                });
+
+                // No tool calls → final text response
+                if (!llmResponse.toolCalls || llmResponse.toolCalls.length === 0) {
+                    const finalText = llmResponse.response;
+                    history.push({ role: 'assistant', content: finalText });
+                    this.conversationHistory.set(sessionId, history);
+
+                    logger.log({
+                        type: 'SESSION_END',
+                        sessionId,
+                        data: { success: true, iterations: iteration + 1 },
+                        duration: Date.now() - startTime
+                    });
+
+                    return { response: finalText, toolsUsed };
+                }
+
+                // Add the assistant turn with tool calls to history
+                history.push({
+                    role: 'assistant',
+                    content: llmResponse.response || null,
+                    tool_calls: llmResponse.toolCalls
+                });
+
+                // Execute every tool call in this turn
+                for (const toolCall of llmResponse.toolCalls) {
+                    const toolResult = await this.executeToolCall(toolCall, sessionId, toolsUsed);
+
+                    history.push({
+                        role: 'tool',
+                        content: toolResult,
+                        tool_call_id: toolCall.id
+                    });
+                }
+                // Loop again with updated history ─────────────────────────────
             }
 
-            // Si no hay tool calls, usar respuesta directa
-            const assistantMessage: LLMMessage = {
-                role: 'assistant',
-                content: llmResponse.response
-            };
-            history.push(assistantMessage);
-
+            // Fallback: force a final response if the loop limit was reached
+            const fallbackResponse = await this.llmService.generateResponse(history, [], 'none', systemMessage);
+            const finalText = fallbackResponse.response;
+            history.push({ role: 'assistant', content: finalText });
             this.conversationHistory.set(sessionId, history);
 
-            logger.log({
-                type: 'SESSION_END',
-                sessionId,
-                data: { success: true },
-                duration: Date.now() - startTime
-            });
-
-            return {
-                response: llmResponse.response,
-                toolsUsed
-            };
+            return { response: finalText, toolsUsed };
 
         } catch (error) {
             console.error('Error en AvailabilityAgent:', error);
 
-            const logger = getSessionLogger();
             logger.log({
                 type: 'ERROR',
                 sessionId,
@@ -123,301 +139,182 @@ export class AvailabilityAgent {
                 }
             });
 
-            // Respuesta de error genérica
-            const errorResponse = `Lo siento, hubo un error procesando tu solicitud. Por favor, intenta nuevamente. Error: ${error instanceof Error ? error.message : 'Error desconocido'}`;
-
             return {
-                response: errorResponse,
+                response: `Lo siento, hubo un error procesando tu solicitud. Por favor, intentá nuevamente. (${error instanceof Error ? error.message : 'Error desconocido'})`,
                 toolsUsed: [],
                 error: error instanceof Error ? error.message : 'Error desconocido'
             };
         }
     }
 
-    private async processToolCalls(
-        llmResponse: { response: string; toolCalls?: ToolCall[] },
-        history: LLMMessage[],
-        systemMessage: LLMMessage,
-        sessionId: string = 'default'
-    ): Promise<{ response: { response: string; toolsUsed: string[]; error?: string }; history: LLMMessage[] }> {
-        const logger = getSessionLogger();
-        const toolsUsed: string[] = [];
-
-        for (const toolCall of llmResponse.toolCalls!) {
-            const toolStartTime = Date.now();
-
-            try {
-                // Log llamada a tool
-                logger.log({
-                    type: 'TOOL_CALL',
-                    sessionId,
-                    data: {
-                        toolName: toolCall.function.name,
-                        arguments: JSON.parse(toolCall.function.arguments)
-                    }
-                });
-
-                const args = JSON.parse(toolCall.function.arguments);
-                // Validar parámetros antes de llamar al MCP
-                this.validateToolCall(toolCall.function.name, args);
-
-                // Normalizar campos numéricos antes de llamar al MCP (ej: hotel_id, pax)
-                const normalizedArgs = ensureNumericFields(args);
-
-                // Ejecutar la tool usando el MCP client (SDK espera un objeto { name, arguments })
-                const toolResult = await this.mcpClient.callTool(
-                    toolCall.function.name,
-                    normalizedArgs,
-                    sessionId
-                );
-
-                // Log resultado de tool
-                logger.log({
-                    type: 'TOOL_RESULT',
-                    sessionId,
-                    data: {
-                        toolName: toolCall.function.name,
-                        result: toolResult.substring(0, 500) // Limitar a 500 chars para no saturar logs
-                    },
-                    duration: Date.now() - toolStartTime
-                });
-
-                toolsUsed.push(toolCall.function.name);
-
-                // Agregar respuesta del assistant al historial
-                if (llmResponse.response) {
-                    const assistantMessage: LLMMessage = {
-                        role: 'assistant',
-                        content: llmResponse.response
-                    };
-                    history.push(assistantMessage);
-                }
-
-                // Agregar resultado de la tool al historial con rol 'tool'
-                const toolMessage: LLMMessage = {
-                    role: 'tool',
-                    content: toolResult,
-                    tool_call_id: toolCall.id
-                };
-                history.push(toolMessage);
-
-                // Generar respuesta final con los resultados
-                const finalMessages = [systemMessage, ...history];
-                const tools = await this.llmService.getToolsAvailables();
-                const finalResponse = await this.llmService.generateResponse(finalMessages, tools, 'none', systemMessage);
-                //console.error('Respuesta final del LLM después de tool call:', finalResponse.response);
-
-                // Agregar respuesta final al historial
-                const finalAssistantMessage: LLMMessage = {
-                    role: 'assistant',
-                    content: finalResponse.response
-                };
-                history.push(finalAssistantMessage);
-
-                return {
-                    response: {
-                        response: finalResponse.response,
-                        toolsUsed
-                    },
-                    history
-                };
-
-            } catch (error) {
-                console.error(`Error ejecutando tool ${toolCall.function.name}:`, error);
-
-                // Manejar error de tool call
-                return await this.handleToolCallError(error, toolCall, llmResponse, history, systemMessage);
-            }
-        }
-
-        // Si no se procesó ninguna tool, retornar respuesta original
-        const assistantMessage: LLMMessage = {
-            role: 'assistant',
-            content: llmResponse.response
-        };
-        history.push(assistantMessage);
-
-        return {
-            response: {
-                response: llmResponse.response,
-                toolsUsed
-            },
-            history
-        };
-    }
-
-
-    private validateToolCall(toolName: string, params: any): void {
-        // Validación específica para check_availability
-        if (toolName === 'check_availability') {
-            this.validateAvailabilityParams(params);
-        }
-
-        // Podemos agregar validaciones para otras tools aquí
-    }
-
-    public async getAvailableTools(sessionId: string): Promise<string[]> {
-        const tools = await this.mcpClient.getToolsForLLM();
-        return tools;
-    }
-
-
-    /**
-   * Valida los parámetros de disponibilidad
-   */
-    private validateAvailabilityParams(params: any): void {
-        const { hotel_id, date_from, date_to, pax } = params;
-
-        if (!date_from || !this.isValidDate(date_from)) {
-            throw new Error('Fecha de check-in inválida. Formato esperado: YYYY-MM-DD');
-        }
-
-        if (!date_to || !this.isValidDate(date_to)) {
-            throw new Error('Fecha de check-out inválida. Formato esperado: YYYY-MM-DD');
-        }
-
-        if (!pax || isNaN(Number(pax)) || Number(pax) <= 0) {
-            throw new Error('Número de personas inválido');
-        }
-
-        const checkIn = new Date(date_from);
-        const checkOut = new Date(date_to);
-
-        if (checkOut <= checkIn) {
-            throw new Error('La fecha de check-out debe ser posterior a la fecha de check-in');
+    private getApiEndpointForTool(toolName: string, args: any): { endpoint: string, method: string } {
+        switch (toolName) {
+            case 'check_availability':
+                return { endpoint: `/api/accommodations/availability?hotel_id=${args.hotel_id}&date_from=${args.date_from}&date_to=${args.date_to}&pax=${args.pax}`, method: 'GET' };
+            case 'manage_booking':
+                if (args.action === 'create') return { endpoint: `/api/bookings`, method: 'POST' };
+                if (args.action === 'update') return { endpoint: `/api/bookings/${args.booking_id}`, method: 'PUT' };
+                if (args.action === 'cancel') return { endpoint: `/api/bookings/${args.booking_id}/cancel`, method: 'POST' };
+                if (args.action === 'get') return { endpoint: `/api/bookings/${args.booking_id}`, method: 'GET' };
+                if (args.action === 'list') return { endpoint: `/api/bookings`, method: 'GET' };
+                return { endpoint: `/api/bookings (action: ${args.action})`, method: 'UNKNOWN' };
+            case 'show_accommodation_detail':
+                return { endpoint: `/api/accommodations/${args.accommodation_id}`, method: 'GET' };
+            case 'create_customer':
+                return { endpoint: `/api/guests`, method: 'POST' };
+            case 'search_customers':
+                return { endpoint: `/api/guests/search?query=${args.query}`, method: 'GET' };
+            case 'list_accommodation_prices':
+                return { endpoint: `/api/prices/accommodations`, method: 'GET' };
+            default:
+                return { endpoint: `API Interna / Función pura`, method: 'SYSTEM' };
         }
     }
 
     /**
-     * Maneja errores en tool calls
+     * Executes a single tool call, handles errors, and returns the result string.
      */
-    private async handleToolCallError(
-        error: any,
+    private async executeToolCall(
         toolCall: ToolCall,
-        llmResponse: { response: string; toolCalls?: ToolCall[] },
-        history: LLMMessage[],
-        systemMessage: LLMMessage
-    ): Promise<{ response: { response: string; toolsUsed: string[]; error?: string }; history: LLMMessage[] }> {
+        sessionId: string,
+        toolsUsed: string[]
+    ): Promise<string> {
+        const logger = getSessionLogger();
+        const toolName = toolCall.function.name;
+        const toolStartTime = Date.now();
 
-        // Agregar mensaje de error como tool response
-        const errorToolMessage: LLMMessage = {
-            role: 'tool',
-            content: `Error: ${error instanceof Error ? error.message : 'Error desconocido'}`,
-            tool_call_id: toolCall.id
-        };
-        history.push(errorToolMessage);
+        let args: Record<string, any>;
+        try {
+            args = JSON.parse(toolCall.function.arguments);
+        } catch {
+            const errMsg = `Error: argumentos JSON inválidos para la herramienta ${toolName}`;
+            logger.log({ type: 'TOOL_CALL', sessionId, data: { toolName, error: errMsg } });
+            return errMsg;
+        }
 
-        // Generar respuesta de error
-        const errorMessages = [systemMessage, ...history];
-        const errorResponse = await this.llmService.generateResponse(errorMessages);
+        const apiInfo = this.getApiEndpointForTool(toolName, args);
 
-        const errorAssistantMessage: LLMMessage = {
-            role: 'assistant',
-            content: errorResponse.response
-        };
-        history.push(errorAssistantMessage);
+        logger.log({
+            type: 'TOOL_CALL',
+            sessionId,
+            data: { 
+                toolName, 
+                api_endpoint: apiInfo.endpoint,
+                api_method: apiInfo.method,
+                arguments: args 
+            }
+        });
 
-        return {
-            response: {
-                response: errorResponse.response,
-                toolsUsed: ['check_availability_error'],
-                error: error instanceof Error ? error.message : 'Error desconocido'
-            },
-            history
-        };
+        // Normalize numeric fields that might arrive as strings
+        const normalizedArgs = ensureNumericFields(args);
+
+        try {
+            const result = await this.mcpClient.callTool(toolName, normalizedArgs, sessionId);
+            toolsUsed.push(toolName);
+
+            let parsedResult = result;
+            try {
+                parsedResult = JSON.parse(result);
+            } catch (e) {
+                // If not JSON, leave as string
+            }
+
+            logger.log({
+                type: 'TOOL_RESULT',
+                sessionId,
+                data: { toolName, status: 'success', result: parsedResult },
+                duration: Date.now() - toolStartTime
+            });
+
+            return result;
+
+        } catch (error) {
+            const errMsg = `Error ejecutando ${toolName}: ${error instanceof Error ? error.message : 'Error desconocido'}`;
+            console.error(errMsg);
+
+            logger.log({
+                type: 'TOOL_RESULT',
+                sessionId,
+                data: { toolName, status: 'error', error: errMsg },
+                duration: Date.now() - toolStartTime
+            });
+
+            // Return the error as content so the LLM can react accordingly
+            return errMsg;
+        }
     }
 
     /**
-     * Obtiene el prompt del sistema según el proveedor
+     * Builds the system message with the current date and the main prompt.
      */
-    private getSystemPrompt(): LLMMessage {
-        const providerInfo = this.llmService.getProviderInfo();
+    private buildSystemMessage(): LLMMessage {
+        const now = new Date();
+        const dateStr = now.toISOString().split('T')[0];
+        const timeStr = now.toTimeString().split(' ')[0];
 
-        let systemPrompt = 'La fecha de hoy es: ' + new Date().toISOString().split('T')[0] + ' y son las ' + new Date().toISOString().split('T')[1].split('.')[0] + '\n. ';
-        console.error('systemPrompt Info:', systemPrompt);
-        systemPrompt += systemPromptReserva;
-        systemPrompt += `
-    
-    Si hay algún error técnico, informa al usuario de manera clara y sugiere que intente más tarde.\n
-    Sé amable, profesional y proporciona información precisa.`;
+        const content = `La fecha de hoy es: ${dateStr} y son las ${timeStr} (hora de Argentina).\n\n${systemPromptReserva}`;
 
-        return {
-            role: 'system',
-            content: systemPrompt
-        };
+        return { role: 'system', content };
     }
 
-    /**
-     * Valida el formato de fecha YYYY-MM-DD
-     */
-    private isValidDate(dateString: string): boolean {
-        const regex = /^\d{4}-\d{2}-\d{2}$/;
-        if (!regex.test(dateString)) return false;
+    // ─── History management ───────────────────────────────────────────────────
 
-        const date = new Date(dateString);
-        return date instanceof Date && !isNaN(date.getTime());
-    }
-
-    /**
-     * Obtiene el historial de conversación para una sesión
-     */
     private getConversationHistory(sessionId: string): LLMMessage[] {
-        return this.conversationHistory.get(sessionId) || [];
+        return this.conversationHistory.get(sessionId) ?? [];
     }
 
-    /**
-     * Limpia el historial de una sesión
-     */
     clearHistory(sessionId: string = 'default'): void {
         this.conversationHistory.delete(sessionId);
     }
 
-    /**
-     * Obtiene el historial completo
-     */
     getFullHistory(sessionId: string): LLMMessage[] {
         return this.getConversationHistory(sessionId);
     }
 
-    /**
-     * Obtiene estadísticas de la sesión
-     */
     getSessionStats(sessionId: string): { messageCount: number; toolUsage: number } {
         const history = this.getConversationHistory(sessionId);
-        const toolUsage = history.filter(msg => msg.role === 'tool').length;
-
         return {
             messageCount: history.length,
-            toolUsage
+            toolUsage: history.filter(msg => msg.role === 'tool').length
         };
     }
 
-    /**
-     * Verifica la salud del servicio MCP
-     */
+    // ─── Public helpers ───────────────────────────────────────────────────────
+
+    async getAvailableTools(_sessionId: string): Promise<string[]> {
+        return this.mcpClient.getToolsForLLM();
+    }
+
     async healthCheck(): Promise<boolean> {
         return this.mcpClient.healthCheck();
     }
 
-    /**
-     * Obtiene información del proveedor LLM
-     */
     getLLMProviderInfo() {
         return this.llmService.getProviderInfo();
     }
 }
 
-// Pequeña función utilitaria para asegurar campos numéricos
-function ensureNumericFields(obj: Record<string, any>, keys: string[] = ['hotel_id', 'pax']) {
+// ─── Utility ─────────────────────────────────────────────────────────────────
+
+/**
+ * Coerces common numeric fields that may arrive as strings from the LLM.
+ */
+function ensureNumericFields(
+    obj: Record<string, any>,
+    keys: string[] = [
+        'hotel_id', 'pax', 'pax_adult', 'pax_minor',
+        'booking_id', 'id', 'guest_id', 'customer_id',
+        'price', 'total_price', 'booking_price', 'list_price',
+        'garage_price', 'garage_nro', 'booking_state_id',
+        'numberOfNights', 'page', 'limit'
+    ]
+): Record<string, any> {
     if (!obj || typeof obj !== 'object') return obj;
     const out = { ...obj };
     for (const k of keys) {
-        if (k in out) {
-            const v = out[k];
-            if (typeof v === 'string') {
-                const n = Number(v);
-                if (!Number.isNaN(n)) out[k] = n;
-            }
+        if (k in out && typeof out[k] === 'string') {
+            const n = Number(out[k]);
+            if (!Number.isNaN(n)) out[k] = n;
         }
     }
     return out;

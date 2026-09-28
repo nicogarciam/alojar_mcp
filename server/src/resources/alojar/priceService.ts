@@ -49,12 +49,12 @@ export class PriceService {
             if (Array.isArray(v)) params.append(k, v.join(','));
             else params.append(k, String(v));
         }
-        const url = `${this.baseUrl}/api/accommodations/price_grid${params.toString() ? '?' + params.toString() : ''}`;
+        const url = `${this.baseUrl}/api/accommodation_prices/price_grid${params.toString() ? '?' + params.toString() : ''}`;
         console.error('listPrices URL:', url);
         return this.safeFetch(url, {
             method: 'GET',
             headers: {
-                'Authorization': `Bearer ${this.token} `,
+                'Authorization': `Bearer ${this.token}`,
                 'Accept': 'application/json'
             }
         });
@@ -69,11 +69,11 @@ export class PriceService {
         for (const k of numericKeys) {
             if (k in payload) payload[k] = this.ensureNumber(payload[k]);
         }
-        const url = `${this.baseUrl} /api/accommodation_prices`;
+        const url = `${this.baseUrl}/api/accommodation_prices`;
         return this.safeFetch(url, {
             method: 'POST',
             headers: {
-                'Authorization': `Bearer ${this.token} `,
+                'Authorization': `Bearer ${this.token}`,
                 'Content-Type': 'application/json',
                 'Accept': 'application/json'
             },
@@ -90,7 +90,7 @@ export class PriceService {
         return this.safeFetch(url, {
             method: 'GET',
             headers: {
-                'Authorization': `Bearer ${this.token} `,
+                'Authorization': `Bearer ${this.token}`,
                 'Accept': 'application/json'
             }
         });
@@ -105,7 +105,7 @@ export class PriceService {
         return this.safeFetch(url, {
             method: 'PUT',
             headers: {
-                'Authorization': `Bearer ${this.token} `,
+                'Authorization': `Bearer ${this.token}`,
                 'Content-Type': 'application/json',
                 'Accept': 'application/json'
             },
@@ -122,7 +122,7 @@ export class PriceService {
         return this.safeFetch(url, {
             method: 'DELETE',
             headers: {
-                'Authorization': `Bearer ${this.token} `,
+                'Authorization': `Bearer ${this.token}`,
                 'Accept': 'application/json'
             }
         });
@@ -156,7 +156,7 @@ export class PriceService {
         return this.safeFetch(url, {
             method: 'GET',
             headers: {
-                'Authorization': `Bearer ${this.token} `,
+                'Authorization': `Bearer ${this.token}`,
                 'Accept': 'application/json'
             }
         });

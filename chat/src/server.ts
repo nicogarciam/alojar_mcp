@@ -5,8 +5,10 @@ import { config } from 'dotenv';
 import { LLMService } from './services/llm.service.js';
 import { AvailabilityAgent } from './agents/availability.agent.js';
 import { createChatRoutes } from './api/chat.routes.js';
+import { createAdminRoutes } from './api/admin.routes.js';
 import { AlojarMCPClient } from './clients/alojar-v1.client.js';
 import { initializeSessionLogger } from './services/session-logger.js';
+import { SupportedProviders } from './services/models.js';
 
 // Cargar variables de entorno
 config();
@@ -57,7 +59,8 @@ class ChatbotServer {
             await mcpClient.connect();
             // Configurar servicio LLM con múltiples proveedores
             // SupportedProviders = 'openai' | 'deepseek' | 'azure' | 'groq' | 'gemini';
-            const llmService = new LLMService('gemini', mcpClient);
+            const provider = (process.env.LLM_PROVIDER as SupportedProviders) || 'gemini';
+            const llmService = new LLMService(provider, mcpClient);
 
 
             // Crear agente
@@ -65,6 +68,7 @@ class ChatbotServer {
 
             // Configurar rutas
             this.app.use('/api', createChatRoutes(this.agent));
+            this.app.use('/api/admin', createAdminRoutes());
 
             // Ruta de bienvenida
             this.app.get('/', (req, res) => {

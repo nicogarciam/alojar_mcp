@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin - Testing LLM Models</title>
+
+    <!-- React CDN -->
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+
+    <!-- Babel para JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <!-- Bootstrap para estilos -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+
+    <!-- Marked.js y DOMPurify -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.5/purify.min.js"></script>
+
+    <!-- Estilos del chatbot originales -->
+    <link rel="stylesheet" href="styles-extended.css">
+
+    <style>
+        body {
+            background: linear-gradient(135deg, #1f1c2c 0%, #928dab 100%);
+            margin: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            color: #fff;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        .admin-layout {
+            display: flex;
+            height: 100vh;
+            width: 100vw;
+        }
+
+        .sidebar {
+            width: 350px;
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-right: 1px solid rgba(255, 255, 255, 0.2);
+            padding: 20px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .chat-area {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(0, 0, 0, 0.2);
+        }
+
+        .provider-card {
+            background: rgba(255, 255, 255, 0.15);
+            border-radius: 10px;
+            padding: 15px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            border: 1px solid transparent;
+        }
+
+        .provider-card:hover {
+            background: rgba(255, 255, 255, 0.25);
+            transform: translateY(-2px);
+        }
+
+        .provider-card.active {
+            border-color: #4facfe;
+            background: rgba(79, 172, 254, 0.2);
+        }
+
+        .model-list {
+            margin-top: 10px;
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        .model-btn {
+            background: rgba(0, 0, 0, 0.2);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: #ddd;
+            padding: 8px 12px;
+            border-radius: 6px;
+            text-align: left;
+            cursor: pointer;
+            font-size: 0.85rem;
+            transition: all 0.2s;
+        }
+
+        .model-btn:hover {
+            background: rgba(255, 255, 255, 0.1);
+            color: #fff;
+        }
+
+        .model-btn.active {
+            background: #4facfe;
+            color: #fff;
+            border-color: #4facfe;
+        }
+
+        .chatbot-page-wrapper {
+            width: 100%;
+            max-width: 800px;
+            height: 90vh;
+        }
+
+        .chatbot-window {
+            position: static;
+            width: 100%;
+            height: 100%;
+            opacity: 1 !important;
+            transform: none !important;
+        }
+
+        .chatbot-container {
+            position: static;
+            height: 100%;
+        }
+
+        .chatbot-button {
+            display: none;
+        }
+
+        h2 {
+            font-size: 1.5rem;
+            margin-bottom: 20px;
+            text-align: center;
+            font-weight: 600;
+        }
+
+        .status-badge {
+            font-size: 0.7rem;
+            padding: 3px 6px;
+            border-radius: 4px;
+            margin-left: 10px;
+        }
+        .status-ok { background: #28a745; }
+        .status-err { background: #dc3545; }
+
+        /* Estilos del Log Panel */
+        .log-panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            overflow: hidden;
+            margin-top: 45px; /* Para alinear un poco con el chat */
+        }
+        
+        .log-header {
+            padding: 15px;
+            background: rgba(255, 255, 255, 0.05);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .log-events {
+            flex: 1;
+            overflow-y: auto;
+            padding: 15px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .log-event {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 8px;
+            padding: 12px;
+            border-left: 4px solid #4facfe;
+        }
+
+        .log-event-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+        }
+
+        .log-data {
+            background: rgba(0, 0, 0, 0.4);
+            border-radius: 4px;
+            padding: 10px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.8rem;
+            color: #e2e8f0;
+            overflow-x: auto;
+            margin: 0;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+    </style>
+</head>
+<body>
+    <div id="admin-root"></div>
+
+    <!-- Importar Chatbot -->
+    <script src="ChatbotComponent.js"></script>
+
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+
+        const LogPanel = ({ sessionId }) => {
+            const [events, setEvents] = useState([]);
+
+            useEffect(() => {
+                if (!sessionId) return;
+                setEvents([]); // Reset en nueva sesión
+
+                // Cargar iniciales
+                fetch(`/api/chat/logs/${encodeURIComponent(sessionId)}`)
+                    .then(res => res.ok ? res.json() : { logs: [] })
+                    .then(data => {
+                        if (data.logs) setEvents(data.logs);
+                    })
+                    .catch(err => console.error("Error loading logs", err));
+
+                // Escuchar stream SSE
+                const es = new EventSource(`/api/chat/logs/stream/${encodeURIComponent(sessionId)}`);
+
+                es.onmessage = (ev) => {
+                    try {
+                        const newEvent = JSON.parse(ev.data);
+                        setEvents(prev => [newEvent, ...prev]);
+                    } catch (err) {
+                        console.error("Invalid event data", err);
+                    }
+                };
+
+                es.onerror = (err) => {
+                    console.error("SSE Error", err);
+                    es.close();
+                };
+
+                return () => es.close();
+            }, [sessionId]);
+
+            if (!sessionId) return null;
+
+            return (
+                <div className="log-panel">
+                    <div className="log-header">
+                        <h4 style={{margin: 0, fontSize: '1.1rem'}}><i className="fa-solid fa-terminal"></i> Logs en vivo</h4>
+                        <span style={{fontSize: '0.8rem', color: '#ccc'}}>{sessionId}</span>
+                    </div>
+                    <div className="log-events">
+                        {events.length === 0 && <div style={{padding: '20px', textAlign: 'center', color: '#999'}}>Esperando eventos...</div>}
+                        {events.map((ev, i) => (
+                            <div key={i} className="log-event">
+                                <div className="log-event-header">
+                                    <strong style={{color: '#4facfe'}}>{ev.type}</strong>
+                                    <span style={{fontSize: '0.8rem', color: '#888'}}>{new Date(ev.timestamp).toLocaleTimeString()}</span>
+                                </div>
+                                <pre className="log-data">{JSON.stringify(ev.data, null, 2)}</pre>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            );
+        };
+
+        const AdminApp = () => {
+            const [providers, setProviders] = useState([]);
+            const [modelsByProvider, setModelsByProvider] = useState({});
+            const [loadingModels, setLoadingModels] = useState({});
+            const [selectedProvider, setSelectedProvider] = useState(null);
+            const [selectedModel, setSelectedModel] = useState(null);
+            const [currentSessionId, setCurrentSessionId] = useState(null);
+            
+            // To force remounting the chat when provider/model changes
+            const [chatKey, setChatKey] = useState(0);
+
+            useEffect(() => {
+                fetch('/api/admin/providers')
+                    .then(res => res.json())
+                    .then(data => setProviders(data))
+                    .catch(err => console.error("Error fetching providers", err));
+            }, []);
+
+            const fetchModels = async (providerId) => {
+                if (modelsByProvider[providerId]) return; // Already fetched
+                
+                setLoadingModels(prev => ({...prev, [providerId]: true}));
+                try {
+                    const res = await fetch(`/api/admin/providers/${providerId}/models`);
+                    if (!res.ok) throw new Error("Failed to fetch");
+                    const data = await res.json();
+                    setModelsByProvider(prev => ({...prev, [providerId]: data}));
+                } catch (error) {
+                    console.error("Error:", error);
+                    setModelsByProvider(prev => ({...prev, [providerId]: { error: true }}));
+                } finally {
+                    setLoadingModels(prev => ({...prev, [providerId]: false}));
+                }
+            };
+
+            const toggleProvider = (providerId) => {
+                if (selectedProvider === providerId) {
+                    setSelectedProvider(null);
+                } else {
+                    setSelectedProvider(providerId);
+                    fetchModels(providerId);
+                }
+            };
+
+            const selectModel = (providerId, modelId) => {
+                setSelectedProvider(providerId);
+                setSelectedModel(modelId);
+                setCurrentSessionId(null);
+                setChatKey(prev => prev + 1); // Remount chat to reset session
+            };
+
+            return (
+                <div className="admin-layout">
+                    <div className="sidebar">
+                        <h2>🤖 MCP Admin Panel</h2>
+                        <p style={{fontSize: '0.85rem', color: '#ccc', textAlign: 'center'}}>Seleccioná un proveedor y un modelo para probarlo en el chat.</p>
+                        
+                        {providers.map(p => (
+                            <div key={p.id} className={`provider-card ${selectedProvider === p.id ? 'active' : ''}`}>
+                                <div onClick={() => toggleProvider(p.id)} style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
+                                    <strong style={{textTransform: 'capitalize'}}>{p.name}</strong>
+                                    {p.isConfigured 
+                                        ? <span className="status-badge status-ok">Configured</span> 
+                                        : <span className="status-badge status-err">Missing Key</span>
+                                    }
+                                </div>
+
+                                {selectedProvider === p.id && p.isConfigured && (
+                                    <div className="model-list">
+                                        {loadingModels[p.id] && <small>Cargando modelos...</small>}
+                                        
+                                        {modelsByProvider[p.id]?.error && <small style={{color: '#ff6b6b'}}>Error cargando modelos (revisá API Key)</small>}
+                                        
+                                        {Array.isArray(modelsByProvider[p.id]) && modelsByProvider[p.id].map(m => (
+                                            <button 
+                                                key={m.id} 
+                                                className={`model-btn ${selectedModel === m.id && selectedProvider === p.id ? 'active' : ''}`}
+                                                onClick={() => selectModel(p.id, m.id)}
+                                            >
+                                                {m.name}
+                                            </button>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        ))}
+                    </div>
+
+                    <div className="chat-area">
+                        {selectedModel ? (
+                            <div style={{ display: 'flex', width: '100%', height: '100%', gap: '20px', padding: '20px' }}>
+                                <div style={{ flex: '1', display: 'flex', flexDirection: 'column' }}>
+                                    <h4 style={{textAlign: 'center', marginBottom: '15px'}}>
+                                        Testeando: <span style={{color: '#4facfe'}}>{selectedModel}</span> ({selectedProvider})
+                                    </h4>
+                                    <div className="chatbot-page-wrapper" style={{ flex: '1', height: 'auto' }}>
+                                        <FloatingChatBot 
+                                            key={chatKey} 
+                                            provider={selectedProvider} 
+                                            model={selectedModel} 
+                                            onSessionIdChange={(id) => setCurrentSessionId(id)}
+                                        />
+                                    </div>
+                                </div>
+                                <div style={{ flex: '1', display: 'flex', flexDirection: 'column' }}>
+                                    <LogPanel sessionId={currentSessionId} />
+                                </div>
+                            </div>
+                        ) : (
+                            <div style={{textAlign: 'center', color: 'rgba(255,255,255,0.5)'}}>
+                                <i className="fa-solid fa-robot" style={{fontSize: '4rem', marginBottom: '20px'}}></i>
+                                <h3>Seleccioná un modelo para empezar a chatear</h3>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        };
+
+        const container = document.getElementById('admin-root');
+        const root = ReactDOM.createRoot(container);
+        root.render(<AdminApp />);
+    </script>
+</body>
+</html>

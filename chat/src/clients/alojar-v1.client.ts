@@ -16,7 +16,7 @@ export class AlojarMCPClient implements MCPClient {
     private isConnected: boolean = false;
     private availableTools: ToolSchema[] = [];
     private sessionId: string | undefined = undefined;
-    private serverUrl = 'http://localhost:3001/mcp';
+    private serverUrl = process.env.MCP_SERVER_URL || 'http://localhost:3001/mcp';
 
     constructor() {
         this.client = new Client(

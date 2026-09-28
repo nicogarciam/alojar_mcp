@@ -37,9 +37,10 @@ export type MessageRole = 'system' | 'user' | 'assistant' | 'tool';
 
 export interface LLMMessage {
     role: MessageRole;
-    content: string;
+    content: string | null;
     name?: string; // Para function calls
     tool_call_id?: string; // Para tool calls
+    tool_calls?: ToolCall[]; // Para assistant tool_calls
 }
 
 export interface ToolCall {

@@ -1,29 +1,32 @@
-import { randomUUID } from 'node:crypto';
-import { z } from 'zod';
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import {
-    CallToolResult,
-    GetPromptResult,
-    PrimitiveSchemaDefinition,
-    ReadResourceResult, ResourceLink
-} from "@modelcontextprotocol/sdk/types.js";
-import { registerCollectUserInfoTool } from '../tools/alojar/collect-user-info.tool.js';
-import { registerAllTools } from '../tools/alojar/register-all-tools.js';
-import { register } from 'node:module';
+
+// --- Availability ---
 import { registerCheckAvailabilityTool } from '../tools/alojar/check-availability.tool.js';
-import { registerListAccommodationPricesTool } from '../tools/alojar/list-accommodation-prices.tool.js';
 import { registerShowAccommodationDetailTool } from '../tools/alojar/show-accommodation-detail.tool.js';
-import { registerCreateBookingTool } from '../tools/alojar/create-booking.tool.js';
-import { registerListUsersTool } from '../tools/alojar/list-users.tool.js';
-import { registerCreateUserTool } from '../tools/alojar/create-user.tool.js';
+
+// --- Bookings ---
+import { registerManageBookingTool } from '../tools/alojar/manage-booking.tool.js';
+
+// --- Prices ---
+import { registerListAccommodationPricesTool } from '../tools/alojar/list-accommodation-prices.tool.js';
+import { registerPriceGridTool } from '../tools/alojar/price-grid.tool.js';
+import { registerCreateAccommodationPriceTool } from '../tools/alojar/create-accommodation-price.tool.js';
+import { registerUpdateAccommodationPriceTool } from '../tools/alojar/update-accommodation-price.tool.js';
+import { registerDeleteAccommodationPriceTool } from '../tools/alojar/delete-accommodation-price.tool.js';
+
+// --- Customers ---
 import { registerSearchCustomersTool } from '../tools/alojar/search-customers.tool.js';
 import { registerCreateCustomerTool } from '../tools/alojar/create-customer.tool.js';
 
-// Check for OAuth flag
-const useOAuth = process.argv.includes('--oauth');
-const strictOAuth = process.argv.includes('--oauth-strict');
-
-// Create an MCP server with implementation details
+/**
+ * Creates and configures the Alojar MCP server with all business tools.
+ *
+ * Tool groups:
+ *  - Availability : check_availability, show_accommodation_detail
+ *  - Bookings     : create_booking, list_bookings, get_booking, update_booking, cancel_booking
+ *  - Prices       : list_accommodation_prices, price_grid, create/update/delete_accommodation_price
+ *  - Customers    : search_customers, create_customer
+ */
 export const getServer = () => {
     const server = new McpServer(
         {
@@ -33,82 +36,23 @@ export const getServer = () => {
         { capabilities: { logging: {} } }
     );
 
-    // Register a tool for collecting user information
-    //registerCollectUserInfoTool(server);
+    // --- Consulta de Disponibilidad ---
     registerCheckAvailabilityTool(server);
-    // registerListAccommodationPricesTool(server);
     registerShowAccommodationDetailTool(server);
-    registerCreateBookingTool(server);
-    
+
+    // --- Gestión de Reservas ---
+    registerManageBookingTool(server);
+
+    // --- Gestión de Precios ---
+    registerListAccommodationPricesTool(server);
+    registerPriceGridTool(server);
+    registerCreateAccommodationPriceTool(server);
+    registerUpdateAccommodationPriceTool(server);
+    registerDeleteAccommodationPriceTool(server);
+
+    // --- Clientes ---
     registerSearchCustomersTool(server);
     registerCreateCustomerTool(server);
 
-     //registerListUsersTool(server);
-    //registerCreateUserTool(server);
-
-    // registerAllTools(server);
-    // Create a simple resource at a fixed URI
-   /* server.registerResource(
-        'greeting-resource',
-        'https://example.com/greetings/default',
-        {
-            title: 'Default Greeting', // Display name for UI
-            description: 'A simple greeting resource',
-            mimeType: 'text/plain'
-        },
-        async (): Promise<ReadResourceResult> => {
-            return {
-                contents: [
-                    {
-                        uri: 'https://example.com/greetings/default',
-                        text: 'Hello, world!'
-                    }
-                ]
-            };
-        }
-    );*/
-
-    // Create additional resources for ResourceLink demonstration
-    /*server.registerResource(
-        'example-file-1',
-        'file:///example/file1.txt',
-        {
-            title: 'Example File 1',
-            description: 'First example file for ResourceLink demonstration',
-            mimeType: 'text/plain'
-        },
-        async (): Promise<ReadResourceResult> => {
-            return {
-                contents: [
-                    {
-                        uri: 'file:///example/file1.txt',
-                        text: 'This is the content of file 1'
-                    }
-                ]
-            };
-        }
-    );*/
-
-    /*server.registerResource(
-        'example-file-2',
-        'file:///example/file2.txt',
-        {
-            title: 'Example File 2',
-            description: 'Second example file for ResourceLink demonstration',
-            mimeType: 'text/plain'
-        },
-        async (): Promise<ReadResourceResult> => {
-            return {
-                contents: [
-                    {
-                        uri: 'file:///example/file2.txt',
-                        text: 'This is the content of file 2'
-                    }
-                ]
-            };
-        }
-    );*/
-
     return server;
 };
-

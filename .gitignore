@@ -10,3 +10,4 @@ chat/node_modules
 chat/.env
 server/node_modules
 server/.env
+chat/logs

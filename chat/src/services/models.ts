@@ -10,60 +10,60 @@ export interface LLMConfig {
 }
 
 
-export const OpenAIModel: LLMConfig = {
-    apiKey: process.env.OPENAI_API_KEY!,
-    model: 'gpt-5-mini', //gpt-3.5-turbo
-    baseURL: 'https://api.openai.com/v1',
-    provider: 'openai', // Por defecto OpenAI
-    temperature: 0.7,
-    maxTokens: 1000,
-};
+export const getOpenAIConfig = (): LLMConfig => ({
+    apiKey: process.env.OPENAI_API_KEY || '',
+    model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+    baseURL: process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1',
+    provider: 'openai',
+    temperature: parseFloat(process.env.LLM_TEMPERATURE || '0.7'),
+    maxTokens: parseInt(process.env.LLM_MAX_TOKENS || '1000'),
+});
 
-export const DeepSeekModel: LLMConfig = {
-    apiKey: process.env.DEEPSEEK_API_KEY!,
-    model: 'deepseek-chat',
-    baseURL: 'https://api.deepseek.com/v1',
+export const getDeepSeekConfig = (): LLMConfig => ({
+    apiKey: process.env.DEEPSEEK_API_KEY || '',
+    model: process.env.DEEPSEEK_MODEL || 'deepseek-chat',
+    baseURL: process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com/v1',
     provider: 'deepseek',
-    temperature: 0.7,
-    maxTokens: 1000,
-};
+    temperature: parseFloat(process.env.LLM_TEMPERATURE || '0.7'),
+    maxTokens: parseInt(process.env.LLM_MAX_TOKENS || '1000'),
+});
 
-
-export const GroqModel: LLMConfig = {
-    apiKey: process.env.GROQ_API_KEY!,
-    model: 'llama-3.3-70b-versatile',
-    baseURL: 'https://api.groq.com/openai/v1',
+export const getGroqConfig = (): LLMConfig => ({
+    apiKey: process.env.GROQ_API_KEY || '',
+    model: process.env.GROQ_MODEL || 'llama-3.3-70b-versatile',
+    baseURL: process.env.GROQ_BASE_URL || 'https://api.groq.com/openai/v1',
     provider: 'groq',
-    temperature: 0.7,
-    maxTokens: 1000,
-};
+    temperature: parseFloat(process.env.LLM_TEMPERATURE || '0.7'),
+    maxTokens: parseInt(process.env.LLM_MAX_TOKENS || '1000'),
+});
 
-// Configuración para Gemini (Google Generative Models)
-export const GeminiModel: LLMConfig = {
-    apiKey: process.env.GEMINI_API_KEY!,
-    model: process.env.GEMINI_MODEL || 'gemini-2.5-flash', // ajusta según el modelo que uses
-    baseURL: process.env.GEMINI_BASE_URL || 'https://gemini.googleapis.com/v1beta', // opcional, ajusta según integración
+export const getGeminiConfig = (): LLMConfig => ({
+    apiKey: process.env.GEMINI_API_KEY || '',
+    model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
+    baseURL: process.env.GEMINI_BASE_URL || 'https://gemini.googleapis.com/v1beta',
     provider: 'gemini',
-    temperature: 0.7,
-    maxTokens: 1000,
-};
+    temperature: parseFloat(process.env.LLM_TEMPERATURE || '0.7'),
+    maxTokens: parseInt(process.env.LLM_MAX_TOKENS || '1000'),
+});
 
+// Backward compatibility exports
+export const OpenAIModel = getOpenAIConfig();
+export const DeepSeekModel = getDeepSeekConfig();
+export const GroqModel = getGroqConfig();
+export const GeminiModel = getGeminiConfig();
 
 export const getLLMConfig = (provider: SupportedProviders): LLMConfig => {
-
     switch (provider) {
         case 'openai':
-            return OpenAIModel;
+            return getOpenAIConfig();
         case 'deepseek':
-            return DeepSeekModel;
-        case 'azure':
-            return GeminiModel;
+            return getDeepSeekConfig();
         case 'groq':
-            return GroqModel;
+            return getGroqConfig();
         case 'gemini':
-            return GeminiModel;
+            return getGeminiConfig();
         default:
-            return OpenAIModel;
+            return getGeminiConfig();
     }
 };
 

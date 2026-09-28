@@ -6,7 +6,6 @@
         "dev": "node --loader tsx ./src/server.ts",
         "build": "tsc",
         "start": "node dist/server.js",
-        "build:frontend": "tsc --project tsconfig.frontend.json",
         "docker:build": "docker build -t chatbot-mcp .",
         "docker:run": "docker run -p 3000:3000 --env-file .env chatbot-mcp"
     },

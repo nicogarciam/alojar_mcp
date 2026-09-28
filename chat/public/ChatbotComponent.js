@@ -6,7 +6,7 @@
  * <script type="text/babel" src="ChatbotComponent.js"></script>
  */
 
-const FloatingChatBot = () => {
+const FloatingChatBot = ({ provider, model, onSessionIdChange }) => {
     const { useState, useRef, useEffect } = React;
 
     marked.setOptions({
@@ -44,6 +44,12 @@ const FloatingChatBot = () => {
     }, [messages]);
 
     useEffect(() => {
+        if (onSessionIdChange) {
+            onSessionIdChange(sessionId);
+        }
+    }, [sessionId]);
+
+    useEffect(() => {
         setSuggestions(initialSuggestions);
         setMessages([{
             id: 'welcome',
@@ -75,13 +81,20 @@ const FloatingChatBot = () => {
         setLoading(true);
 
         try {
+            const payload = { message: text, sessionId: sessionId };
+            if (provider) payload.provider = provider;
+            if (model) payload.model = model;
+
             const response = await fetch(`${API_BASE}/chat`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ message: text, sessionId: sessionId })
+                body: JSON.stringify(payload)
             });
 
-            if (!response.ok) throw new Error(`Error: ${response.status}`);
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.message || errorData.error || `Error HTTP: ${response.status}`);
+            }
 
             const data = await response.json();
             const assistantMessage = {
@@ -98,7 +111,7 @@ const FloatingChatBot = () => {
             const errorMessage = {
                 id: `error_${Date.now()}`,
                 role: 'assistant',
-                content: '⚠️ Lo siento, hubo un error procesando tu mensaje. Por favor, intenta nuevamente.',
+                content: `⚠️ Error procesando tu mensaje: ${error.message}`,
                 timestamp: new Date()
             };
             setMessages(prev => [...prev, errorMessage]);
@@ -126,12 +139,31 @@ const FloatingChatBot = () => {
     return React.createElement('div', { className: 'chatbot-container' },
         React.createElement('div', { className: `chatbot-window ${isOpen ? 'open' : ''}` },
             React.createElement('div', { className: 'chat-header' },
+                React.createElement('div', { className: 'chat-header-avatar' },
+                    React.createElement('div', { className: 'header-avatar-circle' }, 'X'),
+                    React.createElement('div', { className: 'header-status-dot' })
+                ),
                 React.createElement('div', { className: 'chat-header-info' },
                     React.createElement('h3', null, 'Ximena'),
-                    React.createElement('p', null, 'Asistente Virtual • En línea')
+                    React.createElement('p', null, 'Asistente Virtual • Hotel CasaBlanca')
                 ),
-                React.createElement('button', { className: 'close-button', onClick: toggleChat },
-                    React.createElement('i', { className: 'fas fa-times' })
+                React.createElement('div', { className: 'header-actions' },
+                    React.createElement('button', {
+                        className: 'header-action-btn',
+                        title: 'Nueva conversación',
+                        onClick: () => {
+                            setMessages([{
+                                id: 'welcome-reset',
+                                role: 'system',
+                                content: '¡Conversación reiniciada! ¿En qué puedo ayudarte?',
+                                timestamp: new Date()
+                            }]);
+                            setSuggestion(true);
+                        }
+                    }, React.createElement('i', { className: 'fas fa-rotate-right' })),
+                    React.createElement('button', { className: 'header-action-btn', onClick: toggleChat },
+                        React.createElement('i', { className: 'fas fa-xmark' })
+                    )
                 )
             ),
             React.createElement('div', { className: 'chat-messages' },
@@ -140,57 +172,81 @@ const FloatingChatBot = () => {
                         key: message.id,
                         className: `message ${message.role === 'user' ? 'user' : message.role === 'system' ? 'message-system' : 'assistant'}`
                     },
-                        React.createElement('div', { className: 'message-header' },
-                            React.createElement('span', null, message.role === 'user' ? 'Tú' : 'Ximena'),
-                            React.createElement('span', null, message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }))
-                        ),
-                        message.role === 'assistant'
-                            ? React.createElement('div', { className: 'markdown-content', dangerouslySetInnerHTML: renderMarkdown(message.content) })
-                            : React.createElement('div', null, message.content),
-                        message.toolsUsed && message.toolsUsed.length > 0
-                            ? React.createElement('div', { className: 'tools-used' },
-                                React.createElement('i', { className: 'fas fa-tools me-1' }),
-                                `Herramientas usadas: ${message.toolsUsed.join(', ')}`
+                        message.role === 'system' ? (
+                            React.createElement('div', { className: 'message-system-wrapper' },
+                                React.createElement('div', { className: 'message-system', dangerouslySetInnerHTML: renderMarkdown(message.content) })
                             )
-                            : null
+                        ) : [
+                            message.role !== 'user' ? React.createElement('div', { key: 'avatar', className: 'msg-avatar assistant-avatar' }, React.createElement('span', null, 'X')) : null,
+                            React.createElement('div', { key: 'content', className: 'msg-content-col' },
+                                React.createElement('div', { className: 'msg-bubble' },
+                                    message.role === 'assistant'
+                                        ? React.createElement('div', { className: 'markdown-content', dangerouslySetInnerHTML: renderMarkdown(message.content) })
+                                        : React.createElement('span', null, message.content)
+                                ),
+                                message.toolsUsed && message.toolsUsed.length > 0
+                                    ? React.createElement('div', { className: 'tools-badge-row', style: {marginTop: '5px'} },
+                                        message.toolsUsed.map((t, i) => React.createElement('span', { key: i, className: 'tool-badge' }, `🔧 ${t}`))
+                                    )
+                                    : null
+                            )
+                        ]
                     )
                 ),
                 loading && React.createElement('div', { className: 'message assistant' },
-                    React.createElement('div', { className: 'typing-indicator' },
-                        React.createElement('span'),
-                        React.createElement('span'),
-                        React.createElement('span')
+                    React.createElement('div', { className: 'msg-avatar assistant-avatar' }, React.createElement('span', null, 'X')),
+                    React.createElement('div', { className: 'msg-content-col' },
+                        React.createElement('div', { className: 'msg-bubble' },
+                            React.createElement('div', { className: 'typing-indicator' },
+                                React.createElement('span'), React.createElement('span'), React.createElement('span')
+                            )
+                        )
                     )
                 ),
                 React.createElement('div', { ref: messagesEndRef })
             ),
             React.createElement('div', { className: 'chat-input-container' },
-                suggestion && React.createElement('div', { className: 'suggestions' },
-                    suggestions.map((sugg, index) =>
-                        React.createElement('button', {
-                            key: index,
-                            className: 'suggestion-chip',
-                            onClick: () => handleSuggestionClick(sugg),
-                            disabled: loading
-                        }, sugg)
+                suggestion && messages.length <= 1 && React.createElement('div', { className: 'suggestions-container' },
+                    React.createElement('p', { className: 'suggestions-label' }, 'Sugerencias rápidas'),
+                    React.createElement('div', { className: 'suggestions-chips' },
+                        suggestions.map((sugg, index) =>
+                            React.createElement('button', {
+                                key: index,
+                                className: 'suggestion-chip',
+                                onClick: () => handleSuggestionClick(sugg),
+                                disabled: loading
+                            }, sugg)
+                        )
                     )
                 ),
-                React.createElement('div', { className: 'input-group' },
-                    React.createElement('button', { className: 'send-button', onClick: () => setSuggestion(!suggestion) },
-                        loading ? React.createElement('i', { className: 'fas fa-spinner fa-spin' }) : React.createElement('i', { className: 'fa-solid fa-comment-dots' })
-                    ),
+                React.createElement('div', { className: 'input-wrapper' },
                     React.createElement('textarea', {
-                        placeholder: 'Escribe tu mensaje...',
+                        id: 'chat-input',
+                        placeholder: 'Escribí tu mensaje...',
                         value: input,
+                        onInput: (e) => {
+                            e.target.style.height = 'auto';
+                            e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
+                        },
                         onChange: (e) => setInput(e.target.value),
-                        onKeyPress: handleKeyPress,
+                        onKeyDown: (e) => {
+                            if (e.key === 'Enter' && !e.shiftKey) {
+                                e.preventDefault();
+                                sendMessage();
+                            }
+                        },
                         disabled: loading,
                         rows: '1'
                     }),
-                    React.createElement('button', { className: 'send-button', onClick: () => sendMessage(), disabled: !input.trim() || loading },
-                        loading ? React.createElement('i', { className: 'fas fa-spinner fa-spin' }) : React.createElement('i', { className: 'fas fa-paper-plane' })
+                    React.createElement('button', {
+                        className: `send-button ${(!input.trim() || loading) ? 'disabled' : ''}`,
+                        onClick: () => sendMessage(),
+                        disabled: !input.trim() || loading
+                    },
+                        loading ? React.createElement('i', { className: 'fas fa-circle-notch fa-spin' }) : React.createElement('i', { className: 'fas fa-paper-plane' })
                     )
-                )
+                ),
+                React.createElement('p', { className: 'input-hint' }, 'Enter para enviar · Shift+Enter para nueva línea')
             )
         ),
         React.createElement('button', { className: 'chatbot-button', onClick: toggleChat },
