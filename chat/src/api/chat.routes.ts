@@ -14,7 +14,7 @@ export function createChatRoutes(agent: AvailabilityAgent): Router {
      */
     router.post('/chat', async (req, res) => {
         try {
-            const { message, sessionId = 'default', provider, model }: ChatRequest & { provider?: SupportedProviders, model?: string } = req.body;
+            const { message, sessionId = 'default', provider, model, stream }: ChatRequest & { provider?: SupportedProviders, model?: string } = req.body;
 
             if (!message || message.trim().length === 0) {
                 return res.status(400).json({
@@ -34,26 +34,71 @@ export function createChatRoutes(agent: AvailabilityAgent): Router {
                 activeAgent = new AvailabilityAgent(llmService, mcpClient);
             }
 
-            const { response, toolsUsed } = await activeAgent.processMessage(message, sessionId);
-            // console.error(`Respuesta generada [sessionId=${sessionId}]:`, response);
+            const wantsStream = stream === true || req.headers['accept']?.includes('text/event-stream');
+
+            if (wantsStream) {
+                res.writeHead(200, {
+                    'Content-Type': 'text/event-stream',
+                    'Cache-Control': 'no-cache',
+                    'Connection': 'keep-alive',
+                    'X-Accel-Buffering': 'no'
+                });
+
+                const sendSse = (data: any) => {
+                    try {
+                        res.write(`data: ${JSON.stringify(data)}\n\n`);
+                    } catch (e) {
+                        // ignore if connection closed
+                    }
+                };
+
+                const { response, toolsUsed, intermediateMessages, error } = await activeAgent.processMessage(
+                    message,
+                    sessionId,
+                    (event) => {
+                        sendSse(event);
+                    }
+                );
+
+                sendSse({
+                    type: 'final',
+                    response: response || (error ? `Lo siento, hubo un error procesando tu solicitud: ${error}` : 'Lo siento, no pude generar una respuesta.'),
+                    sessionId,
+                    messageId: generateMessageId(),
+                    timestamp: new Date().toISOString(),
+                    toolsUsed: toolsUsed || [],
+                    intermediateMessages,
+                    error: error || undefined
+                });
+
+                res.end();
+                return;
+            }
+
+            const { response, toolsUsed, intermediateMessages } = await activeAgent.processMessage(message, sessionId);
 
             const chatResponse: ChatResponse = {
                 response,
                 sessionId,
                 messageId: generateMessageId(),
                 timestamp: new Date(),
-                toolsUsed
+                toolsUsed,
+                intermediateMessages
             };
 
-            //console.error('Response to client:', chatResponse);
             res.json(chatResponse);
 
         } catch (error) {
             console.error('Error en endpoint /chat:', error);
-            res.status(500).json({
-                error: 'Error interno del servidor',
-                message: error instanceof Error ? error.message : 'Error desconocido'
-            });
+            if (!res.headersSent) {
+                res.status(500).json({
+                    error: 'Error interno del servidor',
+                    message: error instanceof Error ? error.message : 'Error desconocido'
+                });
+            } else {
+                res.write(`data: ${JSON.stringify({ type: 'error', message: error instanceof Error ? error.message : 'Error desconocido' })}\n\n`);
+                res.end();
+            }
         }
     });
 

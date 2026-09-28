@@ -10,6 +10,7 @@ export interface ChatRequest {
     message: string;
     sessionId?: string;
     history?: ChatMessage[];
+    stream?: boolean;
 }
 
 export interface ChatResponse {
@@ -18,7 +19,13 @@ export interface ChatResponse {
     messageId: string;
     timestamp: Date;
     toolsUsed?: string[];
+    intermediateMessages?: string[];
 }
+
+export type AgentEvent =
+    | { type: 'intermediate_message'; content: string }
+    | { type: 'tool_start'; toolName: string }
+    | { type: 'tool_end'; toolName: string; duration: number };
 
 export interface AvailabilityRequest {
     hotel_id: number;
@@ -61,3 +68,15 @@ export interface ToolSchema {
         required?: string[];
     };
 }
+
+export interface TokenUsage {
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+}
+
+export interface LLMResponseResult {
+    response: string;
+    toolCalls?: ToolCall[];
+    usage?: TokenUsage;
+}

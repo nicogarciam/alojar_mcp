@@ -1,12 +1,20 @@
 // src/agents/availability.agent.ts
 import { MCPClient } from '../clients/mcpClient.js';
 import { LLMService } from '../services/llm.service.js';
-import { LLMMessage, ToolCall, MessageRole } from '../types/chat.types.js';
+import { LLMMessage, ToolCall, MessageRole, AgentEvent } from '../types/chat.types.js';
 import { systemPromptReserva } from './system_prompts.js';
 import { getSessionLogger } from '../services/session-logger.js';
 
 /** Maximum agentic loop iterations to prevent infinite loops */
 const MAX_AGENTIC_ITERATIONS = 8;
+
+/**
+ * Strips <think>...</think> reasoning tags and trims response text.
+ */
+function cleanResponseText(text: string | null | undefined): string {
+    if (!text) return '';
+    return text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+}
 
 /**
  * General-purpose hotel assistant agent.
@@ -27,8 +35,9 @@ export class AvailabilityAgent {
      */
     async processMessage(
         userMessage: string,
-        sessionId: string = 'default'
-    ): Promise<{ response: string; toolsUsed: string[]; error?: string }> {
+        sessionId: string = 'default',
+        onEvent?: (event: AgentEvent) => void
+    ): Promise<{ response: string; toolsUsed: string[]; intermediateMessages?: string[]; error?: string }> {
         const logger = getSessionLogger();
         const startTime = Date.now();
 
@@ -48,6 +57,7 @@ export class AvailabilityAgent {
 
             const systemMessage = this.buildSystemMessage();
             const toolsUsed: string[] = [];
+            const intermediateMessages: string[] = [];
 
             // Lista de herramientas administrativas que el chatbot no necesita
             const ADMIN_TOOLS = [
@@ -65,27 +75,38 @@ export class AvailabilityAgent {
                 // on the last iteration we force a text-only response.
                 const toolChoice = iteration === MAX_AGENTIC_ITERATIONS - 1 ? 'none' : 'auto';
 
+                const llmStartTime = Date.now();
                 const llmResponse = await this.llmService.generateResponse(
                     history,
                     tools,
                     toolChoice,
                     systemMessage
                 );
+                const llmDuration = Date.now() - llmStartTime;
 
                 logger.log({
                     type: 'LLM_RESPONSE',
                     sessionId,
                     data: {
                         iteration,
-                        response: llmResponse.response?.substring(0, 300),
-                        toolCallCount: llmResponse.toolCalls?.length ?? 0,
-                        model: this.llmService.getProviderInfo().model
-                    }
+                        model: this.llmService.getProviderInfo().model,
+                        provider: this.llmService.getProviderInfo().provider,
+                        duration_ms: llmDuration,
+                        tokens: llmResponse.usage ? {
+                            prompt_tokens: llmResponse.usage.promptTokens,
+                            completion_tokens: llmResponse.usage.completionTokens,
+                            total_tokens: llmResponse.usage.totalTokens
+                        } : undefined,
+                        response: llmResponse.response,
+                        toolCallCount: llmResponse.toolCalls?.length ?? 0
+                    },
+                    duration: llmDuration
                 });
 
                 // No tool calls → final text response
                 if (!llmResponse.toolCalls || llmResponse.toolCalls.length === 0) {
-                    const finalText = llmResponse.response;
+                    const cleanedFinal = cleanResponseText(llmResponse.response) || llmResponse.response;
+                    const finalText = cleanedFinal;
                     history.push({ role: 'assistant', content: finalText });
                     this.conversationHistory.set(sessionId, history);
 
@@ -96,7 +117,17 @@ export class AvailabilityAgent {
                         duration: Date.now() - startTime
                     });
 
-                    return { response: finalText, toolsUsed };
+                    return { response: finalText, toolsUsed, intermediateMessages };
+                }
+
+                // If the LLM returned intermediate text before invoking tool(s), notify client
+                const intermediateText = cleanResponseText(llmResponse.response);
+                if (intermediateText) {
+                    intermediateMessages.push(intermediateText);
+                    onEvent?.({
+                        type: 'intermediate_message',
+                        content: intermediateText
+                    });
                 }
 
                 // Add the assistant turn with tool calls to history
@@ -108,6 +139,11 @@ export class AvailabilityAgent {
 
                 // Execute every tool call in this turn
                 for (const toolCall of llmResponse.toolCalls) {
+                    onEvent?.({
+                        type: 'tool_start',
+                        toolName: toolCall.function.name
+                    });
+
                     const toolResult = await this.executeToolCall(toolCall, sessionId, toolsUsed);
 
                     history.push({
@@ -120,12 +156,36 @@ export class AvailabilityAgent {
             }
 
             // Fallback: force a final response if the loop limit was reached
+            const fallbackStartTime = Date.now();
             const fallbackResponse = await this.llmService.generateResponse(history, [], 'none', systemMessage);
-            const finalText = fallbackResponse.response;
+            const fallbackDuration = Date.now() - fallbackStartTime;
+
+            logger.log({
+                type: 'LLM_RESPONSE',
+                sessionId,
+                data: {
+                    iteration: MAX_AGENTIC_ITERATIONS,
+                    model: this.llmService.getProviderInfo().model,
+                    provider: this.llmService.getProviderInfo().provider,
+                    duration_ms: fallbackDuration,
+                    tokens: fallbackResponse.usage ? {
+                        prompt_tokens: fallbackResponse.usage.promptTokens,
+                        completion_tokens: fallbackResponse.usage.completionTokens,
+                        total_tokens: fallbackResponse.usage.totalTokens
+                    } : undefined,
+                    response: fallbackResponse.response,
+                    toolCallCount: 0,
+                    isFallback: true
+                },
+                duration: fallbackDuration
+            });
+
+            const cleanedFallback = cleanResponseText(fallbackResponse.response) || fallbackResponse.response;
+            const finalText = cleanedFallback;
             history.push({ role: 'assistant', content: finalText });
             this.conversationHistory.set(sessionId, history);
 
-            return { response: finalText, toolsUsed };
+            return { response: finalText, toolsUsed, intermediateMessages };
 
         } catch (error) {
             console.error('Error en AvailabilityAgent:', error);

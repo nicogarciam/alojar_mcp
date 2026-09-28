@@ -213,6 +213,41 @@
     <script type="text/babel">
         const { useState, useEffect } = React;
 
+        const LogEventItem = ({ ev }) => {
+            const [isExpanded, setIsExpanded] = useState(false);
+            const duration = ev.duration !== undefined && ev.duration !== null ? ev.duration : ev.data?.duration_ms;
+            const tokens = ev.data?.tokens;
+            
+            return (
+                <div className="log-event">
+                    <div 
+                        className="log-event-header" 
+                        onClick={() => setIsExpanded(!isExpanded)}
+                        style={{ cursor: 'pointer', marginBottom: isExpanded ? '8px' : '0', alignItems: 'center' }}
+                    >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                            <i className={`fa-solid fa-chevron-${isExpanded ? 'down' : 'right'}`} style={{ fontSize: '0.8rem', color: '#888', width: '12px' }}></i>
+                            <strong style={{color: '#4facfe'}}>{ev.type}</strong>
+                            {duration !== undefined && duration !== null && (
+                                <span style={{ fontSize: '0.72rem', color: '#68d391', background: 'rgba(104, 211, 145, 0.15)', padding: '2px 6px', borderRadius: '4px', border: '1px solid rgba(104, 211, 145, 0.25)' }}>
+                                    {duration}ms
+                                </span>
+                            )}
+                            {tokens && (
+                                <span style={{ fontSize: '0.72rem', color: '#f6ad55', background: 'rgba(246, 173, 85, 0.15)', padding: '2px 6px', borderRadius: '4px', border: '1px solid rgba(246, 173, 85, 0.25)' }} title={`Enviados (prompt): ${tokens.prompt_tokens} | Generados (completion): ${tokens.completion_tokens} | Consumidos (total): ${tokens.total_tokens}`}>
+                                    {tokens.total_tokens} tokens
+                                </span>
+                            )}
+                        </div>
+                        <span style={{fontSize: '0.8rem', color: '#888'}}>{new Date(ev.timestamp).toLocaleTimeString()}</span>
+                    </div>
+                    {isExpanded && (
+                        <pre className="log-data">{JSON.stringify(ev.data, null, 2)}</pre>
+                    )}
+                </div>
+            );
+        };
+
         const LogPanel = ({ sessionId }) => {
             const [events, setEvents] = useState([]);
 
@@ -259,13 +294,7 @@
                     <div className="log-events">
                         {events.length === 0 && <div style={{padding: '20px', textAlign: 'center', color: '#999'}}>Esperando eventos...</div>}
                         {events.map((ev, i) => (
-                            <div key={i} className="log-event">
-                                <div className="log-event-header">
-                                    <strong style={{color: '#4facfe'}}>{ev.type}</strong>
-                                    <span style={{fontSize: '0.8rem', color: '#888'}}>{new Date(ev.timestamp).toLocaleTimeString()}</span>
-                                </div>
-                                <pre className="log-data">{JSON.stringify(ev.data, null, 2)}</pre>
-                            </div>
+                            <LogEventItem key={i} ev={ev} />
                         ))}
                     </div>
                 </div>

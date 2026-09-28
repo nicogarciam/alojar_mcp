@@ -1,6 +1,6 @@
 // src/services/llm.service.ts
 import OpenAI from 'openai';
-import { LLMMessage, ToolCall, MessageRole } from '../types/chat.types.js';
+import { LLMMessage, ToolCall, MessageRole, TokenUsage } from '../types/chat.types.js';
 import { getLLMConfig, LLMConfig, SupportedProviders } from './models.js';
 import { MCPClient } from '../clients/mcpClient.js';
 import { GoogleGenAI } from '@google/genai';
@@ -50,7 +50,7 @@ export class LLMService {
         messages: LLMMessage[],
         tools?: any[], tool_choice: 'auto' | 'none' = 'auto',
         systemPrompt?: LLMMessage
-    ): Promise<{ response: string; toolCalls?: ToolCall[] }> {
+    ): Promise<{ response: string; toolCalls?: ToolCall[]; usage?: TokenUsage }> {
         try {
             // Si no se proporcionan tools explícitamente, obtenerlas del MCP
             const availableTools = tools || await this.getToolsAvailables();
@@ -85,11 +85,18 @@ export class LLMService {
                 const completion = await this.model.chat.completions.create(requestConfig);
                 const message = completion.choices[0]?.message;
 
+                const usage: TokenUsage | undefined = completion.usage ? {
+                    promptTokens: completion.usage.prompt_tokens ?? 0,
+                    completionTokens: completion.usage.completion_tokens ?? 0,
+                    totalTokens: completion.usage.total_tokens ?? ((completion.usage.prompt_tokens ?? 0) + (completion.usage.completion_tokens ?? 0))
+                } : undefined;
+
                 // the SDK returns tool_calls when the model wants to invoke a function
                 if (message?.tool_calls && message.tool_calls.length > 0) {
                     return {
                         response: message.content || '',
-                        toolCalls: message.tool_calls as ToolCall[]
+                        toolCalls: message.tool_calls as ToolCall[],
+                        usage
                     };
                 }
 
@@ -104,12 +111,14 @@ export class LLMService {
                                 name: fc.name,
                                 arguments: fc.arguments
                             }
-                        } as ToolCall]
+                        } as ToolCall],
+                        usage
                     };
                 }
 
                 return {
-                    response: message?.content || 'Lo siento, no pude generar una respuesta.'
+                    response: message?.content || 'Lo siento, no pude generar una respuesta.',
+                    usage
                 };
             }
 
@@ -141,15 +150,26 @@ export class LLMService {
             });
             console.error('Gemini response (functionCalls):', response?.functionCalls != null ? JSON.stringify(response.functionCalls) : 'none');
 
+            const usageMetadata = (response as any)?.usageMetadata;
+            const usage: TokenUsage | undefined = usageMetadata ? {
+                promptTokens: usageMetadata.promptTokenCount ?? 0,
+                completionTokens: usageMetadata.candidatesTokenCount ?? 0,
+                totalTokens: usageMetadata.totalTokenCount ?? ((usageMetadata.promptTokenCount ?? 0) + (usageMetadata.candidatesTokenCount ?? 0))
+            } : undefined;
+
             const toolCalls = this.extractGeminiToolCalls(response);
             if (toolCalls && toolCalls.length > 0) {
                 return {
                     response: response?.text ?? '',
-                    toolCalls
+                    toolCalls,
+                    usage
                 };
             }
 
-            return { response: response?.text ?? 'Lo siento, no pude obtener una respuesta de Gemini.' };
+            return { 
+                response: response?.text ?? 'Lo siento, no pude obtener una respuesta de Gemini.',
+                usage
+            };
 
         } catch (error) {
             console.error('Error en LLM:', error);

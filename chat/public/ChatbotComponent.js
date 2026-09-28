@@ -26,7 +26,7 @@ const FloatingChatBot = ({ provider, model, onSessionIdChange }) => {
     const [sessionId] = useState(() => `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`);
     const messagesEndRef = useRef(null);
 
-    const API_BASE = 'http://localhost:3000/api';
+    const API_BASE = (typeof window !== 'undefined' && (window.location.port === '3000' || window.location.pathname.includes('/'))) ? '/api' : 'http://localhost:3000/api';
 
     const initialSuggestions = [
         "¿Tienen disponibilidad para 2 personas este fin de semana?",
@@ -41,7 +41,7 @@ const FloatingChatBot = ({ provider, model, onSessionIdChange }) => {
 
     useEffect(() => {
         scrollToBottom();
-    }, [messages]);
+    }, [messages, loading]);
 
     useEffect(() => {
         if (onSessionIdChange) {
@@ -81,13 +81,16 @@ const FloatingChatBot = ({ provider, model, onSessionIdChange }) => {
         setLoading(true);
 
         try {
-            const payload = { message: text, sessionId: sessionId };
+            const payload = { message: text, sessionId: sessionId, stream: true };
             if (provider) payload.provider = provider;
             if (model) payload.model = model;
 
             const response = await fetch(`${API_BASE}/chat`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'Accept': 'text/event-stream, application/json'
+                },
                 body: JSON.stringify(payload)
             });
 
@@ -96,16 +99,98 @@ const FloatingChatBot = ({ provider, model, onSessionIdChange }) => {
                 throw new Error(errorData.message || errorData.error || `Error HTTP: ${response.status}`);
             }
 
-            const data = await response.json();
-            const assistantMessage = {
-                id: data.messageId,
-                role: 'assistant',
-                content: data.response,
-                timestamp: new Date(data.timestamp),
-                toolsUsed: data.toolsUsed
-            };
+            const contentType = response.headers.get('content-type') || '';
+            if (contentType.includes('text/event-stream') && response.body) {
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
 
-            setMessages(prev => [...prev, assistantMessage]);
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    buffer += decoder.decode(value, { stream: true });
+
+                    const parts = buffer.split('\n\n');
+                    buffer = parts.pop() || '';
+
+                    for (const part of parts) {
+                        const lines = part.split('\n');
+                        for (const line of lines) {
+                            if (line.startsWith('data: ')) {
+                                let event = null;
+                                try {
+                                    event = JSON.parse(line.slice(6));
+                                } catch (parseErr) {
+                                    console.error('Error parsing SSE JSON:', parseErr, line);
+                                    continue;
+                                }
+
+                                if (!event) continue;
+
+                                if (event.type === 'intermediate_message') {
+                                    setMessages(prev => [
+                                        ...prev,
+                                        {
+                                            id: `inter_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+                                            role: 'assistant',
+                                            content: event.content,
+                                            timestamp: new Date()
+                                        }
+                                    ]);
+                                    // Mantener loading mientras se ejecuta la tool
+                                    setLoading(true);
+                                } else if (event.type === 'final') {
+                                    setMessages(prev => [
+                                        ...prev,
+                                        {
+                                            id: event.messageId || `ai_${Date.now()}`,
+                                            role: 'assistant',
+                                            content: event.response,
+                                            timestamp: new Date(event.timestamp || Date.now()),
+                                            toolsUsed: event.toolsUsed
+                                        }
+                                    ]);
+                                } else if (event.type === 'error') {
+                                    setMessages(prev => [
+                                        ...prev,
+                                        {
+                                            id: `err_${Date.now()}`,
+                                            role: 'assistant',
+                                            content: event.message?.startsWith('Lo siento')
+                                                ? event.message
+                                                : `Lo siento, hubo un error procesando tu solicitud. Por favor, intentá nuevamente. (${event.message || 'Error desconocido'})`,
+                                            timestamp: new Date()
+                                        }
+                                    ]);
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                const data = await response.json();
+                if (data.intermediateMessages && data.intermediateMessages.length > 0) {
+                    data.intermediateMessages.forEach((msg, idx) => {
+                        setMessages(prev => [
+                            ...prev,
+                            {
+                                id: `inter_${Date.now()}_${idx}`,
+                                role: 'assistant',
+                                content: msg,
+                                timestamp: new Date()
+                            }
+                        ]);
+                    });
+                }
+                const assistantMessage = {
+                    id: data.messageId,
+                    role: 'assistant',
+                    content: data.response,
+                    timestamp: new Date(data.timestamp),
+                    toolsUsed: data.toolsUsed
+                };
+                setMessages(prev => [...prev, assistantMessage]);
+            }
         } catch (error) {
             console.error('Error:', error);
             const errorMessage = {
