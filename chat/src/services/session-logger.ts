@@ -14,6 +14,7 @@ export type LogEventType =
     | 'LLM_RESPONSE'      // LLM responde
     | 'TOOL_CALL'         // Se llama a una herramienta
     | 'TOOL_RESULT'       // Resultado de la herramienta
+    | 'TOOL_GUARD'        // Tool call intercepted and redirected by code guard
     | 'API_CALL'          // Llamada a API externa (desde tool)
     | 'API_RESPONSE'      // Respuesta de API externa
     | 'ERROR'             // Error durante la sesión

@@ -99,7 +99,7 @@ export class BookingService {
         try {
             const params = new URLSearchParams();
             for (const k of Object.keys(query)) {
-                if (query[k] === undefined || query[k] === null) continue;
+                if (k === 'action' || query[k] === undefined || query[k] === null) continue;
                 params.append(k, String(query[k]));
             }
             const url = `${this.baseUrl}/api/bookings${params.toString() ? '?' + params.toString() : ''}`;

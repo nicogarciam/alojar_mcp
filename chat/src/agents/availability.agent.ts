@@ -61,16 +61,24 @@ export class AvailabilityAgent {
 
             // Lista de herramientas administrativas que el chatbot no necesita
             const ADMIN_TOOLS = [
-                'create_accommodation_price', 
-                'update_accommodation_price', 
+                'create_accommodation_price',
+                'update_accommodation_price',
                 'delete_accommodation_price',
                 'create_user',
                 'list_users'
             ];
 
+            // ─── Two-step availability enforcement ──────────────────────────
+            // Hide check_availability until check_availability_summary has been
+            // called at least once. The LLM can't call what it can't see.
+            let summaryCalledThisLoop = false;
+
             // ─── Agentic loop ────────────────────────────────────────────────
             for (let iteration = 0; iteration < MAX_AGENTIC_ITERATIONS; iteration++) {
-                const tools = await this.llmService.getToolsAvailables(ADMIN_TOOLS);
+                const excludeList = summaryCalledThisLoop
+                    ? ADMIN_TOOLS
+                    : [...ADMIN_TOOLS, 'check_availability'];
+                const tools = await this.llmService.getToolsAvailables(excludeList);
                 // On iterations after the first we allow tool calls freely;
                 // on the last iteration we force a text-only response.
                 const toolChoice = iteration === MAX_AGENTIC_ITERATIONS - 1 ? 'none' : 'auto';
@@ -139,12 +147,47 @@ export class AvailabilityAgent {
 
                 // Execute every tool call in this turn
                 for (const toolCall of llmResponse.toolCalls) {
+                    // ─── Guard: redirect check_availability → check_availability_summary ──
+                    // If the LLM somehow calls check_availability before summary was called
+                    // (e.g. hallucinated tool name), always redirect regardless of args.
+                    if (toolCall.function.name === 'check_availability' && !summaryCalledThisLoop) {
+                        try {
+                            const parsedArgs = JSON.parse(toolCall.function.arguments);
+                            console.warn(
+                                '⚠️  Guard triggered: check_availability called before check_availability_summary. ' +
+                                'Redirecting to check_availability_summary.'
+                            );
+                            logger.log({
+                                type: 'TOOL_GUARD',
+                                sessionId,
+                                data: {
+                                    originalTool: 'check_availability',
+                                    redirectedTo: 'check_availability_summary',
+                                    reason: 'Summary not called yet — accommodation_type_id is fabricated',
+                                    originalArgs: parsedArgs,
+                                }
+                            });
+                            // Rewrite the tool call to use the summary tool
+                            toolCall.function.name = 'check_availability_summary';
+                            // Keep only the params that summary accepts
+                            const { date_from, date_to, pax } = parsedArgs;
+                            toolCall.function.arguments = JSON.stringify({ date_from, date_to, pax });
+                        } catch {
+                            // If args can't be parsed, let executeToolCall handle the error
+                        }
+                    }
+
                     onEvent?.({
                         type: 'tool_start',
                         toolName: toolCall.function.name
                     });
 
                     const toolResult = await this.executeToolCall(toolCall, sessionId, toolsUsed);
+
+                    // Track if summary was called so we can unlock check_availability
+                    if (toolCall.function.name === 'check_availability_summary') {
+                        summaryCalledThisLoop = true;
+                    }
 
                     history.push({
                         role: 'tool',
@@ -210,7 +253,9 @@ export class AvailabilityAgent {
     private getApiEndpointForTool(toolName: string, args: any): { endpoint: string, method: string } {
         switch (toolName) {
             case 'check_availability':
-                return { endpoint: `/api/accommodations/availability?hotel_id=${args.hotel_id}&date_from=${args.date_from}&date_to=${args.date_to}&pax=${args.pax}`, method: 'GET' };
+                return { endpoint: `/api/accommodations/availability?hotel_id=${args.hotel_id}&date_from=${args.date_from}&date_to=${args.date_to}&pax=${args.pax}&accommodation_type_id=${args.accommodation_type_id}`, method: 'GET' };
+            case 'check_availability_summary':
+                return { endpoint: `/api/accommodations/availability_summary?hotel_id=${args.hotel_id}&date_from=${args.date_from}&date_to=${args.date_to}&pax=${args.pax}`, method: 'GET' };
             case 'manage_booking':
                 if (args.action === 'create') return { endpoint: `/api/bookings`, method: 'POST' };
                 if (args.action === 'update') return { endpoint: `/api/bookings/${args.booking_id}`, method: 'PUT' };
@@ -257,11 +302,11 @@ export class AvailabilityAgent {
         logger.log({
             type: 'TOOL_CALL',
             sessionId,
-            data: { 
-                toolName, 
+            data: {
+                toolName,
                 api_endpoint: apiInfo.endpoint,
                 api_method: apiInfo.method,
-                arguments: args 
+                arguments: args
             }
         });
 

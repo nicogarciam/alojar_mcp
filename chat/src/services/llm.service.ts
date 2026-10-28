@@ -122,8 +122,6 @@ export class LLMService {
                 };
             }
 
-            console.error(`Usando GEMINI`);
-
             // Obtener herramientas en formato para LLM (OpenAI-style) y convertir a formato Gemini
             const mcpTools = await this.mcpClient.getToolsForLLM();
             const geminiToolsConfig = this.mcpToolsToGeminiFormat(mcpTools);
@@ -166,7 +164,7 @@ export class LLMService {
                 };
             }
 
-            return { 
+            return {
                 response: response?.text ?? 'Lo siento, no pude obtener una respuesta de Gemini.',
                 usage
             };

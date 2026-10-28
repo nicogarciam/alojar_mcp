@@ -1,29 +1,34 @@
-import { CallToolResult, PrimitiveSchemaDefinition } from '@modelcontextprotocol/sdk/types.js';
+import { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from 'zod';
-import { AvailabilityService } from '../../resources/alojar/availabilityService.js';
+import { config } from '../../env.js';
 
 export function registerCheckAvailabilityTool(server: McpServer) {
     server.registerTool(
         'check_availability',
         {
             title: 'Check Availability Tool',
-            description: 'Consulta la disponibilidad de alojamientos para el Hotel CasaBlanca Las Grutas entre las fechas y para un número de personas específicos (pax)',
+            description:
+                'Returns the full list of available accommodation units for a specific accommodation type. ' +
+                'IMPORTANT: Always call check_availability_summary first to get the availability and de accommodation_type_id. ' +
+                'Never call this tool without accommodation_type_id — it would return an oversized payload.',
             inputSchema: {
                 date_from: z.string().describe('Check-in date (YYYY-MM-DD)'),
                 date_to: z.string().describe('Check-out date (YYYY-MM-DD)'),
-                pax: z.number().describe('Number of guests')
+                pax: z.number().describe('Number of guests'),
+                accommodation_type_id: z.number().describe(
+                    'Accommodation type ID obtained from check_availability_summary. Required to scope the response to a single type.'
+                ),
             },
         },
-        async ({ date_from, date_to, pax }, extra): Promise<CallToolResult> => {
-            const availabilityService = new AvailabilityService();
-            console.log('Consultando disponibilidad para hotel_id: 2 desde', date_from, 'hasta', date_to, 'para', pax, 'personas');
+        async ({ date_from, date_to, pax, accommodation_type_id }, extra): Promise<CallToolResult> => {
+            console.log(`Consultando disponibilidad para hotel_id: 2 desde ${date_from} hasta ${date_to} para ${pax} personas, tipo: ${accommodation_type_id}`);
 
             try {
                 await server.sendLoggingMessage(
                     {
                         level: 'info',
-                        data: `Vamos a consultar disponibilidad para hotel_id: 2 desde ${date_from} hasta ${date_to} para ${pax} personas`
+                        data: `Consultando disponibilidad para hotel_id: 2 desde ${date_from} hasta ${date_to} para ${pax} personas, tipo: ${accommodation_type_id}`
                     },
                     extra.sessionId
                 );
@@ -32,7 +37,6 @@ export function registerCheckAvailabilityTool(server: McpServer) {
             }
 
             try {
-                // Validar parámetros
                 if (!date_from || !date_to || !pax) {
                     return {
                         content: [
@@ -45,14 +49,30 @@ export function registerCheckAvailabilityTool(server: McpServer) {
                     };
                 }
 
-                const apiResponse = await availabilityService.quickAvailability(
-                    2,
+                const queryParams = new URLSearchParams({
+                    hotel_id: '2',
                     date_from,
                     date_to,
-                    pax
-                );
+                    pax: pax.toString(),
+                    accommodation_type_id: accommodation_type_id.toString(),
+                });
 
-                //const formattedResponse = formatAvailabilityResponse(apiResponse);
+                const url = `${config.baseUrl}/api/accommodations/availability?${queryParams}`;
+
+                const response = await fetch(url, {
+                    method: 'GET',
+                    headers: {
+                        Authorization: `Bearer ${config.token}`,
+                        'Content-Type': 'application/json',
+                        Accept: 'application/json',
+                    },
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status} - ${response.statusText}`);
+                }
+
+                const apiResponse = await response.json();
                 const formattedResponse = JSON.stringify(apiResponse, null, 2);
 
                 return {

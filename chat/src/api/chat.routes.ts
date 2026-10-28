@@ -32,6 +32,8 @@ export function createChatRoutes(agent: AvailabilityAgent): Router {
                     (llmService as any).config.model = model;
                 }
                 activeAgent = new AvailabilityAgent(llmService, mcpClient);
+                // Maintain conversation history across dynamic agents
+                (activeAgent as any).conversationHistory = (agent as any).conversationHistory;
             }
 
             const wantsStream = stream === true || req.headers['accept']?.includes('text/event-stream');

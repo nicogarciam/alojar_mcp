@@ -8,11 +8,11 @@ export function registerManageBookingTool(server: McpServer) {
         'manage_booking',
         {
             title: 'Manage Booking Tool',
-            description: 'Gestiona todas las operaciones CRUD para reservas (create, update, cancel, get, list).',
+            description: 'Manages all CRUD operations for reservations (create, update, cancel, get, list). CRITICAL: DO NOT use this tool to check for accommodation availability. Use check_availability_summary instead.',
             inputSchema: {
                 action: z.enum(['create', 'update', 'cancel', 'get', 'list']),
                 booking_id: z.number().optional(),
-                
+
                 // --- CREATE / UPDATE Payload ---
                 guest_id: z.number().optional(),
                 guest: z.object({
@@ -46,7 +46,7 @@ export function registerManageBookingTool(server: McpServer) {
                 garage_price: z.number().optional(),
                 garage_nro: z.number().optional(),
                 garage_selected: z.boolean().optional(),
-                
+
                 // Generic update data payload
                 data: z.record(z.any()).optional(),
 
@@ -68,7 +68,7 @@ export function registerManageBookingTool(server: McpServer) {
                         if (!input.date_in || !input.date_out) return { isError: true, content: [{ type: 'text', text: 'Error: Se requieren date_in y date_out' }] };
                         if (!input.accommodations || input.accommodations.length === 0) return { isError: true, content: [{ type: 'text', text: 'Error: Se requiere al menos un Alojamiento' }] };
                         if (!input.pax || input.pax <= 0) return { isError: true, content: [{ type: 'text', text: 'Error: Se requiere pax mayor a 0' }] };
-                        
+
                         const numericKeys = ['guest_id', 'booking_state_id', 'pax', 'pax_adult', 'pax_minor', 'booking_price', 'total_price', 'additional_price', 'garage_price', 'garage_nro', 'numberOfNights', 'city_id'];
                         for (const k of numericKeys) {
                             if (k in input && typeof input[k] === 'string') {
@@ -80,7 +80,7 @@ export function registerManageBookingTool(server: McpServer) {
                         if (!input.guest_id && !input.guest) {
                             return { isError: true, content: [{ type: 'text', text: 'Error: Falta guest_id o datos del guest.' }] };
                         }
-                        
+
                         const res = await svc.createBooking(input);
                         return { content: [{ type: 'text', text: `Reserva creada: ${JSON.stringify(res, null, 2)}` }] };
                     }

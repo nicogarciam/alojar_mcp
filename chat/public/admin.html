@@ -202,6 +202,37 @@
             white-space: pre-wrap;
             word-wrap: break-word;
         }
+
+        /* ── Responsive Admin Layout ── */
+        @media (max-width: 900px) {
+            .admin-layout {
+                flex-direction: column;
+                height: auto;
+                min-height: 100vh;
+                overflow-y: auto;
+            }
+            .sidebar {
+                width: 100%;
+                border-right: none;
+                border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+                height: auto;
+                max-height: 40vh;
+            }
+            .chat-area {
+                height: auto;
+                min-height: 60vh;
+            }
+        }
+        
+        @media (max-width: 768px) {
+            .chat-area-split {
+                flex-direction: column !important;
+            }
+            .log-panel {
+                margin-top: 20px;
+                min-height: 400px;
+            }
+        }
     </style>
 </head>
 <body>
@@ -391,12 +422,12 @@
 
                     <div className="chat-area">
                         {selectedModel ? (
-                            <div style={{ display: 'flex', width: '100%', height: '100%', gap: '20px', padding: '20px' }}>
-                                <div style={{ flex: '1', display: 'flex', flexDirection: 'column' }}>
+                            <div className="chat-area-split" style={{ display: 'flex', width: '100%', height: '100%', gap: '20px', padding: '20px' }}>
+                                <div style={{ flex: '1', display: 'flex', flexDirection: 'column', minHeight: '500px' }}>
                                     <h4 style={{textAlign: 'center', marginBottom: '15px'}}>
                                         Testeando: <span style={{color: '#4facfe'}}>{selectedModel}</span> ({selectedProvider})
                                     </h4>
-                                    <div className="chatbot-page-wrapper" style={{ flex: '1', height: 'auto' }}>
+                                    <div className="chatbot-page-wrapper" style={{ flex: '1', height: '100%' }}>
                                         <FloatingChatBot 
                                             key={chatKey} 
                                             provider={selectedProvider} 

@@ -34,8 +34,8 @@
 
 <body>
 
-    <!-- Hero section -->
-    <div class="hero">
+    <!-- Hero section (Oculto en modo embed por JS) -->
+    <div class="hero" id="hero-section">
         <div class="hero-content">
             <div class="hotel-badge">⭐ Hotel Boutique</div>
             <h1>Hotel CasaBlanca</h1>
@@ -50,6 +50,13 @@
 
     <!-- Chatbot root -->
     <div id="chatbot-root"></div>
+
+    <script>
+        if (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('mode') === 'embed') {
+            document.getElementById('hero-section').style.display = 'none';
+            document.body.classList.add('embed-mode');
+        }
+    </script>
 
     <script type="text/babel">
         const { useState, useRef, useEffect, useCallback } = React;
@@ -181,11 +188,12 @@
 
         // ─── Componente principal ─────────────────────────────────────────────
         const FloatingChatBot = () => {
+            const isEmbedMode = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('mode') === 'embed';
             const [messages, setMessages] = useState([]);
             const [input, setInput] = useState('');
             const [loading, setLoading] = useState(false);
             const [showSuggestions, setShowSuggestions] = useState(true);
-            const [isOpen, setIsOpen] = useState(false);
+            const [isOpen, setIsOpen] = useState(isEmbedMode ? true : false);
             const [hasUnread, setHasUnread] = useState(false);
             const [sessionId] = useState(() =>
                 `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
@@ -410,9 +418,11 @@
                                 >
                                     <i className="fas fa-rotate-right"></i>
                                 </button>
-                                <button className="header-action-btn" onClick={toggleChat}>
-                                    <i className="fas fa-xmark"></i>
-                                </button>
+                                {!isEmbedMode && (
+                                    <button className="header-action-btn" onClick={toggleChat}>
+                                        <i className="fas fa-xmark"></i>
+                                    </button>
+                                )}
                             </div>
                         </div>
 
@@ -470,18 +480,20 @@
                     </div>
 
                     {/* Botón flotante */}
-                    <button
-                        id="chatbot-toggle-btn"
-                        className={`chatbot-button ${isOpen ? 'open' : ''}`}
-                        onClick={toggleChat}
-                        aria-label="Abrir asistente virtual"
-                    >
-                        {isOpen
-                            ? <i className="fas fa-xmark"></i>
-                            : <i className="fas fa-comment-dots"></i>
-                        }
-                        {hasUnread && !isOpen && <span className="unread-dot"></span>}
-                    </button>
+                    {!isEmbedMode && (
+                        <button
+                            id="chatbot-toggle-btn"
+                            className={`chatbot-button ${isOpen ? 'open' : ''}`}
+                            onClick={toggleChat}
+                            aria-label="Abrir asistente virtual"
+                        >
+                            {isOpen
+                                ? <i className="fas fa-xmark"></i>
+                                : <i className="fas fa-comment-dots"></i>
+                            }
+                            {hasUnread && !isOpen && <span className="unread-dot"></span>}
+                        </button>
+                    )}
                 </div>
             );
         };

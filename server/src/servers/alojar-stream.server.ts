@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
 // --- Availability ---
 import { registerCheckAvailabilityTool } from '../tools/alojar/check-availability.tool.js';
+import { registerCheckAvailabilitySummaryTool } from '../tools/alojar/check-availability-summary.tool.js';
 import { registerShowAccommodationDetailTool } from '../tools/alojar/show-accommodation-detail.tool.js';
 
 // --- Bookings ---
@@ -37,6 +38,7 @@ export const getServer = () => {
     );
 
     // --- Consulta de Disponibilidad ---
+    registerCheckAvailabilitySummaryTool(server);
     registerCheckAvailabilityTool(server);
     registerShowAccommodationDetailTool(server);
 
